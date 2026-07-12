@@ -8,7 +8,7 @@ from .db import SessionLocal, init_db, db_health
 from . import models, schemas, audit
 from . import browser_recon, llm
 from .safety import validate_public_http_url
-app=FastAPI(title='Zer0 - The Vanguard', version='0.1.0')
+app=FastAPI(title='Vanguard by Zer0', version='0.1.0')
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in settings.cors_origins.split(',') if o.strip()], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
 @app.on_event('startup')
 def startup(): init_db()
@@ -96,6 +96,99 @@ def dashboard(db:Session=Depends(get_db)):
 def report(run_id:int, db:Session=Depends(get_db)):
     if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
     return audit.build_report(db,run_id)
+@app.get('/api/agents/catalog')
+def agents_catalog():
+    from . import orchestrator
+    return orchestrator.catalog()
+@app.post('/api/runs/{run_id}/agent-mesh')
+def run_agent_mesh(run_id:int, db:Session=Depends(get_db)):
+    if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
+    from . import orchestrator
+    return orchestrator.run_mesh(db,run_id)
+@app.get('/api/runs/{run_id}/agent-mesh')
+def get_agent_mesh(run_id:int, db:Session=Depends(get_db)):
+    if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
+    from . import orchestrator
+    return orchestrator.run_mesh(db,run_id)
+def build_attack_surface(db:Session, run_id:int):
+    run=db.get(models.AuditRun,run_id)
+    if not run: raise HTTPException(404,'run not found')
+    asset=db.get(models.Asset,run.asset_id)
+    evidence=db.query(models.Evidence).filter_by(run_id=run_id).all()
+    findings=db.query(models.Finding).filter_by(run_id=run_id).all()
+    ev={e.kind:e.data for e in evidence}
+    crawl=ev.get('crawl') or {}; browser=(ev.get('browser-recon') or {}).get('model',{}); api=ev.get('api-security') or {}; active=ev.get('active-probe') or {}
+    nodes=[]; edges=[]
+    def add_node(i,label,kind,risk='info',meta=None):
+        if not any(n['id']==i for n in nodes): nodes.append({'id':i,'label':label,'kind':kind,'risk':risk,'meta':meta or {}})
+    def add_edge(a,b,kind,meta=None): edges.append({'from':a,'to':b,'kind':kind,'meta':meta or {}})
+    root='asset:root'; add_node(root,asset.url if asset else f'run {run_id}','asset','info',{'authorized':bool(asset and asset.authorized)})
+    pages=(crawl.get('pages') or [])[:30]
+    for idx,page in enumerate(pages):
+        pid=f'page:{idx}'; add_node(pid,page,'page','info'); add_edge(root,pid,'discovers')
+    for idx,form in enumerate((browser.get('forms') or crawl.get('forms') or [])[:25]):
+        fid=f'form:{idx}'; action=form.get('action') or 'same-page'; method=form.get('method','GET')
+        risk='warn' if method.upper() not in {'GET','HEAD'} or form.get('has_password') else 'info'
+        add_node(fid,action,'form',risk,{'method':method,'inputs':form.get('inputs',[]),'has_password':form.get('has_password',False)})
+        add_edge(root,fid,'contains_form')
+    for idx,endpoint in enumerate((api.get('endpoints') or [])[:25]):
+        eid=f'api:{idx}'; add_node(eid,endpoint.get('url','api'),'api','bad' if endpoint.get('issue_count',0)>0 else 'info',endpoint); add_edge(root,eid,'calls_api')
+    for idx,disc in enumerate((api.get('discovered') or [])[:25]):
+        did=f'discovered-api:{idx}'; add_node(did,disc.get('path','api-docs'),'api-discovery','bad' if disc.get('severity') in {'Critical','High'} else 'warn',disc); add_edge(root,did,'exposes')
+    sev_risk={'Critical':'bad','High':'bad','Medium':'warn','Low':'info'}
+    for idx,f in enumerate(findings[:60]):
+        fid=f'finding:{f.id}'; add_node(fid,f.title,'finding',sev_risk.get(f.severity,'info'),{'severity':f.severity,'compliance':f.compliance or {},'remediation':f.remediation})
+        target=root
+        low=(f.title+' '+f.description).lower()
+        if 'api' in low and any(n['kind'].startswith('api') for n in nodes): target=next(n['id'] for n in nodes if n['kind'].startswith('api'))
+        elif 'form' in low and any(n['kind']=='form' for n in nodes): target=next(n['id'] for n in nodes if n['kind']=='form')
+        add_edge(target,fid,'has_finding',{'severity':f.severity})
+    sev={}
+    for f in findings: sev[f.severity]=sev.get(f.severity,0)+1
+    hot=[n for n in nodes if n['risk']=='bad'][:8]
+    attack_paths=[]
+    if sev.get('Critical') or sev.get('High'):
+        attack_paths.append({'name':'High-impact exposure chain','steps':['Public asset discovered','Weakness confirmed in evidence','Remediation ticket/retest required'],'priority':'High'})
+    if browser.get('spa_gap',{}).get('surface_revealed'):
+        attack_paths.append({'name':'Client-rendered hidden surface','steps':['HTTP baseline misses JS surface','Browser recon reveals links/forms/API calls','Authenticated dry-run recommended'],'priority':'Medium'})
+    if api.get('issues') or api.get('discovered_count'):
+        attack_paths.append({'name':'API inventory pressure','steps':['Browser/API discovery finds endpoint','Misconfiguration or exposed docs confirmed','Restrict or authenticate endpoint'],'priority':'High' if api.get('issues') else 'Medium'})
+    return {'run_id':run_id,'target':asset.url if asset else '', 'summary':{'nodes':len(nodes),'edges':len(edges),'findings':len(findings),'by_severity':sev,'forms':sum(1 for n in nodes if n['kind']=='form'),'apis':sum(1 for n in nodes if n['kind'].startswith('api')),'hotspots':len(hot)},'nodes':nodes,'edges':edges,'hotspots':hot,'attack_paths':attack_paths,'coverage':{'crawl_pages':len(crawl.get('pages') or []),'browser_links':len(browser.get('links') or []),'browser_forms':len(browser.get('forms') or []),'api_endpoints':len(api.get('endpoints') or []),'active_probe_checks':active.get('checks_run',0)}}
+@app.get('/api/runs/{run_id}/attack-surface')
+def attack_surface(run_id:int, db:Session=Depends(get_db)):
+    return build_attack_surface(db,run_id)
+
+def build_executive_pack(db:Session, run_id:int):
+    rep=audit.build_report(db,run_id)
+    surface=build_attack_surface(db,run_id)
+    tickets=remediation_tickets(db)['tickets']
+    run_tickets=[t for t in tickets if any(f.get('title')==t.get('title') for f in rep.get('findings',[]))]
+    controls={}
+    for finding in rep.get('findings',[]):
+        for k,v in (finding.get('compliance') or {}).items():
+            controls.setdefault(k,{}).setdefault(str(v),0); controls[k][str(v)]+=1
+    top_risks=sorted(rep.get('findings',[]), key=lambda f:{'Critical':0,'High':1,'Medium':2,'Low':3}.get(f.get('severity'),9))[:5]
+    score=rep.get('security_score',0)
+    posture='board-escalation' if score<50 or any(f.get('severity') in {'Critical','High'} for f in rep.get('findings',[])) else ('managed-risk' if score<80 else 'strong-baseline')
+    roadmap=[]
+    if top_risks:
+        roadmap.append({'phase':'0-7 days','goal':'Eliminate high-impact exposures','items':[{'title':f['title'],'severity':f['severity'],'owner':'web-platform-team'} for f in top_risks if f.get('severity') in {'Critical','High'}] or [{'title':top_risks[0]['title'],'severity':top_risks[0]['severity'],'owner':'web-platform-team'}]})
+    roadmap.append({'phase':'7-30 days','goal':'Harden browser/API baseline','items':['CSP/HSTS/clickjacking headers','API docs and unauthenticated endpoint review','Retest closed tickets']})
+    roadmap.append({'phase':'30-90 days','goal':'Operationalize continuous exposure control','items':['Recurring scans for approved domains','Auth-session dry-run coverage','Compliance evidence bundle review']})
+    return {'product':'Vanguard by Zer0','run_id':run_id,'target':rep.get('target'),'posture':posture,'security_score':score,'certificate_status':rep.get('certificate_status'),'executive_summary':rep.get('executive_summary'),'kpis':{'findings':len(rep.get('findings',[])),'hotspots':surface['summary']['hotspots'],'attack_paths':len(surface['attack_paths']),'open_tickets':sum(1 for t in run_tickets if t.get('status')!='closed'),'retested':sum(1 for t in run_tickets if str(t.get('status','')).startswith('retest_')),'llm_calls':(rep.get('observability') or {}).get('llm_calls',0)},'top_risks':top_risks,'attack_paths':surface['attack_paths'],'compliance_controls':controls,'remediation_roadmap':roadmap,'exports':['report.html','evidence-bundle','client-safe-report','attestation','executive-pack.html'],'assurance':{'domain_authorized':run_attestation(run_id,db)['domain_authorized'],'non_destructive':True,'secrets_stored':False,'approval_required_for_deep_testing':True}}
+
+@app.get('/api/runs/{run_id}/executive-pack')
+def executive_pack(run_id:int, db:Session=Depends(get_db)):
+    if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
+    return build_executive_pack(db,run_id)
+
+@app.api_route('/api/runs/{run_id}/executive-pack.html', methods=['GET','HEAD'], response_class=HTMLResponse)
+def executive_pack_html(run_id:int, db:Session=Depends(get_db)):
+    p=build_executive_pack(db,run_id)
+    risks=''.join([f"<li><b>{r['severity']}: {r['title']}</b><p>{r.get('remediation','')}</p></li>" for r in p['top_risks']])
+    paths=''.join([f"<li><b>{x['priority']}: {x['name']}</b><p>{' → '.join(x['steps'])}</p></li>" for x in p['attack_paths']])
+    roadmap=''.join([f"<li><b>{x['phase']}: {x['goal']}</b><p>{', '.join([i['title'] if isinstance(i,dict) else str(i) for i in x['items']])}</p></li>" for x in p['remediation_roadmap']])
+    return f"""<!doctype html><html><head><title>Vanguard Executive Pack #{run_id}</title><style>body{{font-family:Inter,system-ui;background:#07111f;color:#e5eefb;padding:40px}}section{{background:#0d1b2f;border:1px solid #263d5b;border-radius:18px;padding:24px;margin-bottom:20px}}.kpi{{display:inline-block;margin:8px 16px 8px 0;padding:12px 16px;border:1px solid #36d39955;border-radius:12px;background:#0a1422}}li{{margin:12px 0}}</style></head><body><section><h1>Vanguard by Zer0 · Executive Security Pack</h1><h2>{p['target']}</h2><p>{p['executive_summary']}</p><div>{''.join([f'<span class="kpi"><b>{k}</b><br/>{v}</span>' for k,v in p['kpis'].items()])}</div><h3>Top risks</h3><ol>{risks}</ol><h3>Likely attack paths</h3><ol>{paths or '<li>No chained path detected.</li>'}</ol><h3>90-day remediation roadmap</h3><ol>{roadmap}</ol><p>Assurance: authorized={p['assurance']['domain_authorized']} · non-destructive=true · secrets stored=false</p></section></body></html>"""
 @app.api_route('/api/runs/{run_id}/report.html', methods=['GET','HEAD'], response_class=HTMLResponse)
 def report_html(run_id:int, db:Session=Depends(get_db)):
     rep=report(run_id,db); findings=''.join([f"<li><b>{f['severity']}: {f['title']}</b><p>{f['description']}</p><small>{f['remediation']}</small></li>" for f in rep['findings']])
@@ -107,14 +200,14 @@ def report_html(run_id:int, db:Session=Depends(get_db)):
 @app.get('/api/runs/{run_id}/evidence-bundle')
 def evidence_bundle(run_id:int, db:Session=Depends(get_db)):
     if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
-    return {'run_id':run_id,'product':'Zer0 - The Vanguard','report':audit.build_report(db,run_id),'timeline':timeline(run_id,db),'tasks':tasks(run_id,db)}
+    return {'run_id':run_id,'product':'Vanguard by Zer0','report':audit.build_report(db,run_id),'timeline':timeline(run_id,db),'tasks':tasks(run_id,db),'agent_mesh':get_agent_mesh(run_id,db),'attack_surface':build_attack_surface(db,run_id),'executive_pack':build_executive_pack(db,run_id)}
 @app.get('/api/runs/{run_id}/attestation')
 def run_attestation(run_id:int, db:Session=Depends(get_db)):
     run=db.get(models.AuditRun,run_id)
     if not run: raise HTTPException(404,'run not found')
     asset=db.get(models.Asset,run.asset_id)
     approval=db.query(models.Approval).filter_by(run_id=run_id,status='approved').first()
-    return {'product':'Zer0 - The Vanguard','run_id':run.id,'target':asset.url if asset else '', 'domain_authorized':bool(asset and asset.authorized and approval),'scan_tier':(run.app_model or {}).get('scan_tier','legacy'),'methodology':['non_destructive','public_http_https_only','same_origin_crawl','headers_tls_common_files','no_credentials_no_dos_no_exfiltration'],'approval':{'status':approval.status if approval else 'missing','decided_by':approval.decided_by if approval else ''},'client_certificate_status':'internal_attestation_not_compliance_certificate','generated_for':'client_and_auditor_review'}
+    return {'product':'Vanguard by Zer0','run_id':run.id,'target':asset.url if asset else '', 'domain_authorized':bool(asset and asset.authorized and approval),'scan_tier':(run.app_model or {}).get('scan_tier','legacy'),'methodology':['non_destructive','public_http_https_only','same_origin_crawl','headers_tls_common_files','no_credentials_no_dos_no_exfiltration'],'approval':{'status':approval.status if approval else 'missing','decided_by':approval.decided_by if approval else ''},'client_certificate_status':'internal_attestation_not_compliance_certificate','generated_for':'client_and_auditor_review'}
 
 @app.get('/api/runs/{run_id}/timeline')
 def timeline(run_id:int, db:Session=Depends(get_db)):
@@ -235,7 +328,7 @@ def remediation_tickets(db:Session=Depends(get_db)):
     rows=db.query(models.RemediationTicket).order_by(models.RemediationTicket.id.desc()).limit(100).all()
     finding_ids=[r.finding_id for r in rows]
     findings={f.id:f for f in db.query(models.Finding).filter(models.Finding.id.in_(finding_ids)).all()} if finding_ids else {}
-    return {'tickets':[{'id':r.id,'finding_id':r.finding_id,'owner':r.owner,'status':r.status,'title':findings[r.finding_id].title if r.finding_id in findings else '', 'severity':findings[r.finding_id].severity if r.finding_id in findings else '', 'created_at':r.created_at.isoformat()} for r in rows]}
+    return {'tickets':[{'id':r.id,'finding_id':r.finding_id,'owner':r.owner,'status':r.status,'retest_run_id':r.retest_run_id,'title':findings[r.finding_id].title if r.finding_id in findings else '', 'severity':findings[r.finding_id].severity if r.finding_id in findings else '', 'created_at':r.created_at.isoformat()} for r in rows]}
 
 @app.post('/api/remediation-tickets/{ticket_id}/status')
 def remediation_ticket_status(ticket_id:int, req:schemas.TicketStatusRequest, db:Session=Depends(get_db)):
@@ -244,12 +337,34 @@ def remediation_ticket_status(ticket_id:int, req:schemas.TicketStatusRequest, db
     ticket.status=req.status; db.commit(); audit.log(db,0,0,'remediation.ticket.status',{'ticket_id':ticket.id,'status':ticket.status},actor='analyst')
     return {'ticket':{'id':ticket.id,'finding_id':ticket.finding_id,'owner':ticket.owner,'status':ticket.status}}
 
+@app.post('/api/remediation-tickets/{ticket_id}/retest')
+def remediation_ticket_retest(ticket_id:int, req:schemas.RetestRequest, db:Session=Depends(get_db)):
+    ticket=db.get(models.RemediationTicket,ticket_id)
+    if not ticket: raise HTTPException(404,'ticket not found')
+    finding=db.get(models.Finding,ticket.finding_id)
+    if not finding: raise HTTPException(404,'finding not found')
+    parent=db.get(models.AuditRun,finding.run_id)
+    if not parent: raise HTTPException(404,'source run not found')
+    asset=db.get(models.Asset,parent.asset_id)
+    if not asset or not asset.authorized: raise HTTPException(403,'approved domain required for retest')
+    allowed={'ready_for_retest','passed','failed'}
+    outcome=req.outcome if req.outcome in allowed else 'ready_for_retest'
+    status={'ready_for_retest':'retest_ready','passed':'retest_passed','failed':'retest_failed'}[outcome]
+    retest=models.AuditRun(workspace_id=parent.workspace_id,asset_id=parent.asset_id,status='completed',stage=status,progress=100,cost_estimate_usd=0.0,app_model={'scan_tier':'retest','parent_run_id':parent.id,'finding_id':finding.id,'ticket_id':ticket.id,'outcome':outcome})
+    db.add(retest); db.commit(); db.refresh(retest)
+    audit.task(db,retest.id,'remediation_retest',asset.url,status='completed',summary=f'Retest package created for ticket #{ticket.id}: {finding.title}')
+    db.add(models.Evidence(run_id=retest.id,kind='remediation-retest',title='Remediation retest validation package',data={'ticket_id':ticket.id,'source_run_id':parent.id,'finding':{'id':finding.id,'severity':finding.severity,'title':finding.title,'evidence':finding.evidence,'remediation':finding.remediation},'outcome':outcome,'evidence_note':req.evidence_note,'reviewer':req.reviewer,'non_destructive':True,'requires_manual_validation':outcome=='ready_for_retest'}))
+    audit.cost(db,retest.id,'deterministic','remediation_retest',0.0,detail={'ticket_id':ticket.id,'outcome':outcome})
+    ticket.retest_run_id=retest.id; ticket.status=status
+    db.commit(); audit.log(db,parent.workspace_id,retest.id,'remediation.retest.created',{'ticket_id':ticket.id,'finding_id':finding.id,'outcome':outcome,'source_run_id':parent.id},actor=req.reviewer)
+    return {'ticket':{'id':ticket.id,'finding_id':ticket.finding_id,'owner':ticket.owner,'status':ticket.status,'retest_run_id':ticket.retest_run_id},'retest_run':{'run_id':retest.id,'workspace_id':retest.workspace_id,'asset_id':retest.asset_id,'status':retest.status,'stage':retest.stage,'progress':retest.progress},'outcome':outcome,'non_destructive':True}
+
 @app.get('/api/program/summary')
 def program_summary(db:Session=Depends(get_db)):
     runs=db.query(models.AuditRun).all(); assets=db.query(models.Asset).all(); findings=db.query(models.Finding).all(); approvals=db.query(models.Approval).all(); tickets=db.query(models.RemediationTicket).all(); schedules=db.query(models.Schedule).all(); subs=db.query(models.BillingSubscription).all()
     sev={}
     for f in findings: sev[f.severity]=sev.get(f.severity,0)+1
-    return {'product':'Zer0 - The Vanguard','risk':{'findings_total':len(findings),'by_severity':sev,'open_remediation_tickets':sum(1 for t in tickets if t.status!='closed')},'operations':{'runs_total':len(runs),'runs_completed':sum(1 for r in runs if r.status in {'completed','browser_recon_complete','report_ready'}),'domains_total':len(assets),'domains_approved':sum(1 for a in assets if a.authorized),'pending_approvals':sum(1 for a in approvals if a.status=='pending'),'active_schedules':sum(1 for s in schedules if s.status=='active')},'commerce':{'subscriptions_total':len(subs),'active_vanguard':sum(1 for s in subs if s.status=='active' and s.plan=='vanguard'),'estimated_scan_revenue_usd':round(sum(r.cost_estimate_usd for r in runs),2)}}
+    return {'product':'Vanguard by Zer0','risk':{'findings_total':len(findings),'by_severity':sev,'open_remediation_tickets':sum(1 for t in tickets if t.status!='closed')},'operations':{'runs_total':len(runs),'runs_completed':sum(1 for r in runs if r.status in {'completed','browser_recon_complete','report_ready'}),'domains_total':len(assets),'domains_approved':sum(1 for a in assets if a.authorized),'pending_approvals':sum(1 for a in approvals if a.status=='pending'),'active_schedules':sum(1 for s in schedules if s.status=='active')},'commerce':{'subscriptions_total':len(subs),'active_vanguard':sum(1 for s in subs if s.status=='active' and s.plan=='vanguard'),'estimated_scan_revenue_usd':round(sum(r.cost_estimate_usd for r in runs),2)}}
 
 @app.get('/api/program/readiness')
 def program_readiness(db:Session=Depends(get_db)):
@@ -261,7 +376,7 @@ def program_readiness(db:Session=Depends(get_db)):
         {'name':'remediation','ready':db.query(models.RemediationTicket).first() is not None,'detail':'Findings can become remediation tickets.'},
         {'name':'recurring_schedules','ready':db.query(models.Schedule).first() is not None,'detail':'Recurring scan schedule objects exist and are subscription/domain gated.'},
     ]
-    return {'product':'Zer0 - The Vanguard','ready_score':round(sum(1 for c in checks if c['ready'])/len(checks)*100),'checks':checks}
+    return {'product':'Vanguard by Zer0','ready_score':round(sum(1 for c in checks if c['ready'])/len(checks)*100),'checks':checks}
 
 @app.get('/api/admin/schedules')
 def admin_schedules(db:Session=Depends(get_db)):
@@ -300,6 +415,86 @@ def upsert_user(req:schemas.UserUpsertRequest, db:Session=Depends(get_db)):
 @app.get('/api/rbac/matrix')
 def rbac_matrix():
     return {'roles':{'owner':['manage_org','manage_billing','approve_domains','run_scans','read_reports','read_audit_log'],'admin':['approve_domains','run_scans','read_reports','read_audit_log'],'approver':['approve_domains','read_reports'],'analyst':['run_scans','read_reports'],'viewer':['read_internal_dashboard'],'client_viewer':['read_approved_reports']},'enforced_surfaces':['client_reports','admin_domain_queue','billing','audit_log']}
+
+@app.get('/api/workspaces/{workspace_id}/credentials')
+def workspace_credentials(workspace_id:int, db:Session=Depends(get_db)):
+    rows=db.query(models.CredentialVaultStub).filter_by(workspace_id=workspace_id).order_by(models.CredentialVaultStub.id.desc()).all()
+    return {'credentials':[{'id':c.id,'label':c.label,'username':c.username,'secret_ref':c.secret_ref,'role_name':c.role_name,'allowed_use':c.allowed_use,'revoked':bool(c.revoked_at),'created_at':c.created_at.isoformat()} for c in rows]}
+
+@app.post('/api/workspaces/{workspace_id}/credentials')
+def add_workspace_credential(workspace_id:int, req:schemas.CredentialVaultRequest, db:Session=Depends(get_db)):
+    if not db.get(models.Workspace,workspace_id): raise HTTPException(404,'workspace not found')
+    secret_ref=req.secret_ref if req.secret_ref.startswith(('external-','secret://','vault://','gcp-secret://')) else 'external-secret-not-stored'
+    row=models.CredentialVaultStub(workspace_id=workspace_id,label=req.label,username=req.username,secret_ref=secret_ref,role_name=req.role_name,allowed_use=req.allowed_use)
+    db.add(row); db.commit(); audit.log(db,workspace_id,0,'credential.stub.created',{'credential_id':row.id,'role':row.role_name,'secret_ref':row.secret_ref},actor='admin')
+    return {'credential':{'id':row.id,'label':row.label,'username':row.username,'secret_ref':row.secret_ref,'role_name':row.role_name,'allowed_use':row.allowed_use}}
+
+@app.get('/api/workspaces/{workspace_id}/scope-rules')
+def workspace_scope_rules(workspace_id:int, db:Session=Depends(get_db)):
+    rows=db.query(models.ScopeRule).filter_by(workspace_id=workspace_id).order_by(models.ScopeRule.id.desc()).all()
+    return {'rules':[{'id':r.id,'include_pattern':r.include_pattern,'exclude_pattern':r.exclude_pattern,'test_level':r.test_level} for r in rows]}
+
+@app.post('/api/workspaces/{workspace_id}/scope-rules')
+def add_scope_rule(workspace_id:int, req:schemas.ScopeRuleRequest, db:Session=Depends(get_db)):
+    if not db.get(models.Workspace,workspace_id): raise HTTPException(404,'workspace not found')
+    row=models.ScopeRule(workspace_id=workspace_id,include_pattern=req.include_pattern,exclude_pattern=req.exclude_pattern,test_level=req.test_level)
+    db.add(row); db.commit(); audit.log(db,workspace_id,0,'scope.rule.created',{'rule_id':row.id,'test_level':row.test_level},actor='admin')
+    return {'rule':{'id':row.id,'include_pattern':row.include_pattern,'exclude_pattern':row.exclude_pattern,'test_level':row.test_level}}
+
+@app.get('/api/workspaces/{workspace_id}/auth-sessions')
+def workspace_auth_sessions(workspace_id:int, db:Session=Depends(get_db)):
+    rows=db.query(models.AuthSessionProfile).filter_by(workspace_id=workspace_id).order_by(models.AuthSessionProfile.id.desc()).all()
+    return {'sessions':[{'id':s.id,'workspace_id':s.workspace_id,'asset_id':s.asset_id,'credential_id':s.credential_id,'login_url':s.login_url,'success_indicator':s.success_indicator,'status':s.status,'last_verified_at':s.last_verified_at.isoformat() if s.last_verified_at else None} for s in rows]}
+
+@app.post('/api/workspaces/{workspace_id}/auth-sessions')
+def add_auth_session(workspace_id:int, req:schemas.AuthSessionRequest, db:Session=Depends(get_db)):
+    if not db.get(models.Workspace,workspace_id): raise HTTPException(404,'workspace not found')
+    cred=db.get(models.CredentialVaultStub,req.credential_id) if req.credential_id else db.query(models.CredentialVaultStub).filter_by(workspace_id=workspace_id).first()
+    if not cred or cred.workspace_id!=workspace_id: raise HTTPException(400,'credential stub required for this workspace')
+    asset=db.get(models.Asset,req.asset_id) if req.asset_id else db.query(models.Asset).filter_by(workspace_id=workspace_id).first()
+    if not asset or asset.workspace_id!=workspace_id: raise HTTPException(400,'asset required for this workspace')
+    row=models.AuthSessionProfile(workspace_id=workspace_id,asset_id=asset.id,credential_id=cred.id,login_url=req.login_url or asset.url,success_indicator=req.success_indicator,status=req.status)
+    db.add(row); db.commit(); audit.log(db,workspace_id,0,'auth.session.profile.created',{'session_id':row.id,'asset_id':asset.id,'credential_id':cred.id,'status':row.status},actor='admin')
+    return {'session':{'id':row.id,'workspace_id':row.workspace_id,'asset_id':row.asset_id,'credential_id':row.credential_id,'login_url':row.login_url,'success_indicator':row.success_indicator,'status':row.status}}
+
+@app.post('/api/runs/{run_id}/authenticated-form-test')
+def authenticated_form_test(run_id:int, req:schemas.AuthenticatedFormTestRequest, db:Session=Depends(get_db)):
+    run=db.get(models.AuditRun,run_id)
+    if not run: raise HTTPException(404,'run not found')
+    asset=db.get(models.Asset,run.asset_id)
+    if not asset or not asset.authorized: raise HTTPException(403,'domain admin approval required for authenticated testing')
+    if not req.dry_run: raise HTTPException(409,'live authenticated form submission is not enabled; use dry_run=true')
+    cred=db.get(models.CredentialVaultStub,req.credential_id) if req.credential_id else db.query(models.CredentialVaultStub).filter_by(workspace_id=run.workspace_id).first()
+    if not cred or cred.workspace_id!=run.workspace_id or cred.revoked_at: raise HTTPException(400,'active credential stub required')
+    sess=db.get(models.AuthSessionProfile,req.auth_session_id) if req.auth_session_id else db.query(models.AuthSessionProfile).filter_by(workspace_id=run.workspace_id,asset_id=asset.id,credential_id=cred.id).first()
+    if not sess or sess.workspace_id!=run.workspace_id or sess.asset_id!=asset.id: raise HTTPException(400,'auth session profile required')
+    rules=db.query(models.ScopeRule).filter_by(workspace_id=run.workspace_id).all()
+    if not rules:
+        rule=models.ScopeRule(workspace_id=run.workspace_id,include_pattern='/*',exclude_pattern='/logout,/delete,/billing',test_level='safe_forms_dry_run')
+        db.add(rule); db.commit(); rules=[rule]
+    browser_ev=db.query(models.Evidence).filter_by(run_id=run_id,kind='browser-recon').order_by(models.Evidence.id.desc()).first()
+    crawl_ev=db.query(models.Evidence).filter_by(run_id=run_id,kind='crawl').order_by(models.Evidence.id.desc()).first()
+    forms=((browser_ev.data or {}).get('model',{}).get('forms',[]) if browser_ev else []) or ((crawl_ev.data or {}).get('forms',[]) if crawl_ev else [])
+    excludes=[]
+    for rule in rules:
+        excludes += [x.strip() for x in (rule.exclude_pattern or '').split(',') if x.strip()]
+    reviewed=[]; blocked=[]
+    for idx,form in enumerate(forms):
+        action=form.get('action') or asset.url; method=(form.get('method') or 'GET').upper(); inputs=form.get('inputs') or []
+        reasons=[]
+        if any(x in action for x in excludes): reasons.append('excluded_by_scope')
+        if any(str(i).lower() in {'password','token','csrf','credit_card','card'} for i in inputs): reasons.append('sensitive_input_present')
+        if method not in {'GET','HEAD'}: reasons.append('state_changing_method')
+        item={'index':idx,'action':action,'method':method,'inputs':inputs,'dry_run_only':True,'decision':'blocked' if reasons else 'safe_to_render_only','reasons':reasons}
+        reviewed.append(item)
+        if reasons: blocked.append(item)
+    audit.task(db,run.id,'authenticated_form_testing',asset.url,status='completed',summary=f'Dry-run reviewed {len(reviewed)} authenticated forms; blocked {len(blocked)} from submission')
+    db.add(models.Approval(run_id=run.id,action='authenticated_form_testing',status='approved',reason=req.reason,decided_by=req.reviewer))
+    db.add(models.Evidence(run_id=run.id,kind='authenticated-form-test',title='Authenticated safe-form dry run',data={'credential_id':cred.id,'auth_session_id':sess.id,'session_status':sess.status,'scope_rules':[{'include':r.include_pattern,'exclude':r.exclude_pattern,'test_level':r.test_level} for r in rules],'forms_reviewed':reviewed,'blocked_forms':len(blocked),'dry_run':True,'no_live_submission':True}))
+    audit.cost(db,run.id,'deterministic','authenticated_form_test',0.0,detail={'forms_reviewed':len(reviewed),'blocked_forms':len(blocked)})
+    model=dict(run.app_model or {}); model['authenticated_testing']={'dry_run':True,'forms_reviewed':len(reviewed),'blocked_forms':len(blocked),'credential_role':cred.role_name}; run.app_model=model
+    db.commit(); audit.log(db,run.workspace_id,run.id,'authenticated_form_test.completed',{'forms_reviewed':len(reviewed),'blocked_forms':len(blocked),'credential_id':cred.id,'session_id':sess.id},actor='auth-test-agent')
+    return {'ok':True,'run_id':run.id,'forms_reviewed':len(reviewed),'blocked_forms':len(blocked),'credential':{'id':cred.id,'label':cred.label,'role_name':cred.role_name,'secret_ref':cred.secret_ref},'session':{'id':sess.id,'status':sess.status},'dry_run':True,'no_live_submission':True,'reviewed':reviewed}
 
 @app.get('/api/client/reports/{run_id}')
 def client_report(run_id:int, role:str='client_viewer', db:Session=Depends(get_db)):

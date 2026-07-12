@@ -61,7 +61,10 @@ def test_report_export_endpoints():
     client.post(f'/api/admin/domain-queue/{rid}/execute')
     html=client.get(f'/api/runs/{rid}/report.html'); assert html.status_code==200; assert 'Zer0' in html.text; assert 'text/html' in html.headers['content-type']
     head=client.head(f'/api/runs/{rid}/report.html'); assert head.status_code==200; assert 'text/html' in head.headers['content-type']
+    pack=client.get(f'/api/runs/{rid}/executive-pack'); assert pack.status_code==200; assert pack.json()['posture'] in {'board-escalation','managed-risk','strong-baseline'}; assert 'remediation_roadmap' in pack.json()
+    pack_html=client.get(f'/api/runs/{rid}/executive-pack.html'); assert pack_html.status_code==200; assert 'Executive Security Pack' in pack_html.text; assert 'text/html' in pack_html.headers['content-type']
     bundle=client.get(f'/api/runs/{rid}/evidence-bundle'); assert bundle.status_code==200; body=bundle.json(); assert body['run_id']==rid; assert body['report']['status']=='completed'; assert len(body['timeline']['evidence'])>0
+    assert body['executive_pack']['run_id']==rid
 
 def test_paid_detailed_scan_has_enterprise_depth():
     intent=client.post('/api/payments/intent', json={'target_url':'https://example.com','scan_tier':'detailed'}).json()
@@ -117,11 +120,28 @@ def test_remediation_ticket_generation_and_status():
     tickets=client.get('/api/remediation-tickets'); assert tickets.status_code==200; tid=tickets.json()['tickets'][0]['id']; assert tickets.json()['tickets'][0]['status']=='open'
     closed=client.post(f'/api/remediation-tickets/{tid}/status', json={'status':'closed'}); assert closed.status_code==200; assert closed.json()['ticket']['status']=='closed'
 
+def test_remediation_retest_creates_validation_run():
+    r=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'RT','workspace_name':'RT','scan_tier':'free'}); run=r.json(); rid=run['run_id']
+    client.post(f'/api/admin/domain-queue/{rid}/approve', json={'decided_by':'admin','reason':'owner verified'})
+    from app.db import SessionLocal
+    from app import models
+    db=SessionLocal()
+    try:
+        f=models.Finding(run_id=rid,severity='High',title='Retestable finding',description='test',evidence='before',remediation='fix it',compliance={'OWASP':'A05'})
+        db.add(f); db.commit(); db.refresh(f); fid=f.id
+    finally:
+        db.close()
+    gen=client.post(f'/api/runs/{rid}/remediation-tickets'); assert gen.status_code==200
+    tickets=client.get('/api/remediation-tickets').json()['tickets']; tid=next(t['id'] for t in tickets if t['finding_id']==fid)
+    retest=client.post(f'/api/remediation-tickets/{tid}/retest', json={'outcome':'passed','reviewer':'qa','evidence_note':'headers fixed'}); assert retest.status_code==200
+    body=retest.json(); assert body['ticket']['status']=='retest_passed'; assert body['ticket']['retest_run_id'] > 0; assert body['retest_run']['stage']=='retest_passed'
+    tasks=client.get(f"/api/runs/{body['ticket']['retest_run_id']}/tasks"); assert tasks.status_code==200; assert any(t['module']=='remediation_retest' for t in tasks.json()['tasks'])
+
 def test_program_summary_endpoint():
-    summary=client.get('/api/program/summary'); assert summary.status_code==200; body=summary.json(); assert body['product']=='Zer0 - The Vanguard'; assert 'risk' in body and 'operations' in body and 'commerce' in body; assert body['operations']['domains_total'] >= body['operations']['domains_approved']
+    summary=client.get('/api/program/summary'); assert summary.status_code==200; body=summary.json(); assert body['product']=='Vanguard by Zer0'; assert 'risk' in body and 'operations' in body and 'commerce' in body; assert body['operations']['domains_total'] >= body['operations']['domains_approved']
 
 def test_launch_readiness_checklist():
-    r=client.get('/api/program/readiness'); assert r.status_code==200; body=r.json(); assert body['product']=='Zer0 - The Vanguard'; assert body['ready_score'] >= 0; names=[x['name'] for x in body['checks']]; assert 'domain_approval' in names and 'payment_gating' in names and 'report_exports' in names and 'audit_log' in names
+    r=client.get('/api/program/readiness'); assert r.status_code==200; body=r.json(); assert body['product']=='Vanguard by Zer0'; assert body['ready_score'] >= 0; names=[x['name'] for x in body['checks']]; assert 'domain_approval' in names and 'payment_gating' in names and 'report_exports' in names and 'audit_log' in names
 
 def test_admin_user_rbac_management():
     up=client.post('/api/admin/users', json={'workspace_id':42,'email':'analyst@zer0.local','role':'analyst'}); assert up.status_code==200; assert up.json()['user']['role']=='analyst'
@@ -132,7 +152,55 @@ def test_run_attestation_endpoint():
     r=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'AT','workspace_name':'AT','scan_tier':'free'}); run=r.json(); rid=run['run_id']
     client.post(f'/api/admin/domain-queue/{rid}/approve', json={'decided_by':'admin','reason':'owner verified'})
     client.post(f'/api/admin/domain-queue/{rid}/execute')
-    att=client.get(f'/api/runs/{rid}/attestation'); assert att.status_code==200; body=att.json(); assert body['product']=='Zer0 - The Vanguard'; assert body['domain_authorized'] is True; assert 'non_destructive' in body['methodology']; assert body['target']=='https://example.com/'
+    att=client.get(f'/api/runs/{rid}/attestation'); assert att.status_code==200; body=att.json(); assert body['product']=='Vanguard by Zer0'; assert body['domain_authorized'] is True; assert 'non_destructive' in body['methodology']; assert body['target']=='https://example.com/'
+
+def test_multi_agent_mesh_control_plane():
+    catalog=client.get('/api/agents/catalog'); assert catalog.status_code==200; assert len(catalog.json()['agents']) >= 7
+    r=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'MA','workspace_name':'MA','scan_tier':'free'}); rid=r.json()['run_id']
+    client.post(f'/api/admin/domain-queue/{rid}/approve', json={'decided_by':'admin','reason':'owner verified'})
+    client.post(f'/api/admin/domain-queue/{rid}/execute')
+    mesh=client.post(f'/api/runs/{rid}/agent-mesh'); assert mesh.status_code==200; body=mesh.json()
+    assert body['status']=='ready'
+    agents=[x['agent'] for x in body['agent_status']]
+    assert 'Supervisor' in agents and 'Compliance Mapper' in agents and 'Evidence QA' in agents
+    assert body['outputs']['evidence_qa']['claims_checked'] >= 1
+    assert len(body['risk_register']) >= 1
+    bundle=client.get(f'/api/runs/{rid}/evidence-bundle'); assert bundle.status_code==200; assert bundle.json()['agent_mesh']['run_id']==rid
+
+def test_attack_surface_graph_maps_evidence_and_findings():
+    r=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'AS','workspace_name':'AS','scan_tier':'free'}); run=r.json(); rid=run['run_id']
+    client.post(f'/api/admin/domain-queue/{rid}/approve', json={'decided_by':'admin','reason':'owner verified'})
+    from app.db import SessionLocal
+    from app import models
+    db=SessionLocal()
+    try:
+        db.add(models.Evidence(run_id=rid,kind='crawl',title='crawl',data={'pages':['https://example.com/'], 'forms':[{'action':'https://example.com/login','method':'POST','inputs':['email','password'],'has_password':True}]}))
+        db.add(models.Evidence(run_id=rid,kind='api-security',title='api',data={'endpoints':[{'url':'https://example.com/api/me','method':'GET','issue_count':1}], 'discovered':[{'path':'/openapi.json','severity':'High','label':'OpenAPI'}], 'issues':2, 'discovered_count':1}))
+        db.add(models.Finding(run_id=rid,severity='High',title='API exposes data',description='api issue',evidence='GET /api/me',remediation='auth',compliance={'OWASP-API':'API1'}))
+        db.commit()
+    finally:
+        db.close()
+    graph=client.get(f'/api/runs/{rid}/attack-surface'); assert graph.status_code==200; body=graph.json()
+    assert body['summary']['nodes'] >= 5
+    assert body['summary']['apis'] >= 2
+    assert body['summary']['forms'] == 1
+    assert body['summary']['hotspots'] >= 1
+    assert any(p['name']=='API inventory pressure' for p in body['attack_paths'])
+    bundle=client.get(f'/api/runs/{rid}/evidence-bundle'); assert bundle.status_code==200; assert bundle.json()['attack_surface']['run_id']==rid
+
+def test_authenticated_testing_workflow_is_dry_run_and_secret_safe():
+    r=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'AUTH','workspace_name':'AUTH','scan_tier':'free'}); run=r.json(); rid=run['run_id']; wid=run['workspace_id']; aid=run['asset_id']
+    client.post(f'/api/admin/domain-queue/{rid}/approve', json={'decided_by':'admin','reason':'owner verified'})
+    cred=client.post(f'/api/workspaces/{wid}/credentials', json={'label':'Standard test user','username':'qa@example.com','secret_ref':'raw-password-should-not-store','role_name':'standard_user'}); assert cred.status_code==200
+    cid=cred.json()['credential']['id']; assert cred.json()['credential']['secret_ref']=='external-secret-not-stored'
+    rule=client.post(f'/api/workspaces/{wid}/scope-rules', json={'include_pattern':'/*','exclude_pattern':'/logout,/delete,/billing','test_level':'safe_forms_dry_run'}); assert rule.status_code==200
+    sess=client.post(f'/api/workspaces/{wid}/auth-sessions', json={'credential_id':cid,'asset_id':aid,'login_url':'https://example.com/login','success_indicator':'Example Domain','status':'human_verified'}); assert sess.status_code==200
+    blocked=client.post(f'/api/runs/{rid}/authenticated-form-test', json={'credential_id':cid,'auth_session_id':sess.json()['session']['id'],'dry_run':False}); assert blocked.status_code==409
+    dry=client.post(f'/api/runs/{rid}/authenticated-form-test', json={'credential_id':cid,'auth_session_id':sess.json()['session']['id'],'dry_run':True,'reviewer':'admin'}); assert dry.status_code==200; body=dry.json()
+    assert body['ok'] is True and body['dry_run'] is True and body['no_live_submission'] is True
+    assert body['credential']['secret_ref']=='external-secret-not-stored'
+    tasks=client.get(f'/api/runs/{rid}/tasks').json(); assert any(t['module']=='authenticated_form_testing' for t in tasks['tasks'])
+    sessions=client.get(f'/api/workspaces/{wid}/auth-sessions'); assert sessions.status_code==200; assert sessions.json()['sessions'][0]['status']=='human_verified'
 
 def test_billing_webhook_activates_subscription():
     hook=client.post('/api/billing/webhook', json={'workspace_id':777,'event':'checkout.session.completed','plan':'vanguard','payment_reference':'stripe_stub_777'}); assert hook.status_code==200; assert hook.json()['subscription']['status']=='active'

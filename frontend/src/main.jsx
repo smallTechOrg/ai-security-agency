@@ -9,11 +9,11 @@ class EB extends React.Component{constructor(p){super(p);this.state={e:null}}sta
 
 function App(){
   const[view,setView]=useState('overview');
-  const[health,setHealth]=useState(null),[dash,setDash]=useState(null),[admin,setAdmin]=useState(null),[domains,setDomains]=useState(null),[auditLog,setAuditLog]=useState(null),[billing,setBilling]=useState(null),[schedules,setSchedules]=useState(null),[tickets,setTickets]=useState(null),[summary,setSummary]=useState(null),[readiness,setReadiness]=useState(null),[users,setUsers]=useState(null),[costGov,setCostGov]=useState(null),[intelModels,setIntelModels]=useState(null),[intelMode,setIntelMode]=useState('deterministic'),[url,setUrl]=useState('https://example.com'),[tier,setTier]=useState('free'),[payment,setPayment]=useState(''),[run,setRun]=useState(null),[report,setReport]=useState(null),[timeline,setTimeline]=useState(null),[tasks,setTasks]=useState(null),[intel,setIntel]=useState(null),[enterprise,setEnterprise]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
+  const[health,setHealth]=useState(null),[dash,setDash]=useState(null),[admin,setAdmin]=useState(null),[domains,setDomains]=useState(null),[auditLog,setAuditLog]=useState(null),[billing,setBilling]=useState(null),[schedules,setSchedules]=useState(null),[tickets,setTickets]=useState(null),[summary,setSummary]=useState(null),[readiness,setReadiness]=useState(null),[users,setUsers]=useState(null),[costGov,setCostGov]=useState(null),[intelModels,setIntelModels]=useState(null),[intelMode,setIntelMode]=useState('deterministic'),[url,setUrl]=useState('https://example.com'),[tier,setTier]=useState('free'),[payment,setPayment]=useState(''),[run,setRun]=useState(null),[report,setReport]=useState(null),[timeline,setTimeline]=useState(null),[tasks,setTasks]=useState(null),[agentMesh,setAgentMesh]=useState(null),[attackSurface,setAttackSurface]=useState(null),[intel,setIntel]=useState(null),[enterprise,setEnterprise]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
   async function api(path,options){const r=await fetch(API+path,options),j=await r.json().catch(()=>({detail:r.statusText}));if(!r.ok)throw new Error(j.detail||`HTTP ${r.status}`);return j}
   async function load(){try{setHealth(await api('/health'));setDash(await api('/api/dashboard'));setAdmin(await api('/api/admin/domain-queue'));setDomains(await api('/api/admin/domains'));setAuditLog(await api('/api/admin/audit-log'));setBilling(await api('/api/billing/plans'));setSchedules(await api('/api/admin/schedules'));setTickets(await api('/api/remediation-tickets'));setSummary(await api('/api/program/summary'));setReadiness(await api('/api/program/readiness'));setUsers(await api('/api/admin/users'));const m=await api('/api/intelligence/models');setIntelModels(m);setIntelMode(m.current)}catch(e){}}
   useEffect(()=>{load()},[]);
-  function clearReport(){setReport(null);setTimeline(null);setTasks(null);setIntel(null);setEnterprise(null)}
+  function clearReport(){setReport(null);setTimeline(null);setTasks(null);setAgentMesh(null);setAttackSurface(null);setIntel(null);setEnterprise(null)}
   async function buyDetailed(){setBusy(true);setError('');try{const p=await api('/api/payments/intent',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({target_url:url,scan_tier:'detailed'})});setPayment(p.payment_reference);setTier('detailed')}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function mintUpi(){setBusy(true);setError('');setUpi(null);try{const p=await api('/api/payments/upi-qr',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({plan:'vanguard'})});setUpi(p);setTier('detailed')}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function loadKeys(){try{setKeys(await api('/api/admin/access-keys'))}catch(e){}}
@@ -41,18 +41,19 @@ function App(){
       await load();setError('This detailed scan needs payment/approval. Use a free scan for instant results, or enable demo unlock.');
     }
   }catch(e){setError(e.message)}finally{setBusy(false)}}
-  async function openRun(r){const id=r.run_id||r.id;setBusy(true);setError('');setRun({run_id:id,workspace_id:r.workspace_id,asset_id:r.asset_id||0,status:r.status,stage:r.stage,progress:r.progress,app_model:r.app_model||{}});clearReport();try{if(['awaiting_approval','payment_required','queued'].includes(r.status)){if(r.workspace_id)setCostGov(await api(`/api/workspaces/${r.workspace_id}/cost-governor?run_id=${id}`));return;}const [rep,tl,tk,ai,ent,gov]=await Promise.all([api(`/api/runs/${id}/report`),api(`/api/runs/${id}/timeline`),api(`/api/runs/${id}/tasks`),api(`/api/runs/${id}/intelligence`),api(`/api/workspaces/${r.workspace_id}/enterprise`),api(`/api/workspaces/${r.workspace_id}/cost-governor?run_id=${id}`)]);setReport(rep);setTimeline(tl);setTasks(tk);setIntel(ai);setEnterprise(ent);setCostGov(gov);setView('report')}catch(e){setError(e.message)}finally{setBusy(false)}}
+  async function openRun(r){const id=r.run_id||r.id;setBusy(true);setError('');setRun({run_id:id,workspace_id:r.workspace_id,asset_id:r.asset_id||0,status:r.status,stage:r.stage,progress:r.progress,app_model:r.app_model||{}});clearReport();try{if(['awaiting_approval','payment_required','queued'].includes(r.status)){if(r.workspace_id)setCostGov(await api(`/api/workspaces/${r.workspace_id}/cost-governor?run_id=${id}`));return;}const [rep,tl,tk,mesh,surface,ai,ent,gov]=await Promise.all([api(`/api/runs/${id}/report`),api(`/api/runs/${id}/timeline`),api(`/api/runs/${id}/tasks`),api(`/api/runs/${id}/agent-mesh`),api(`/api/runs/${id}/attack-surface`),api(`/api/runs/${id}/intelligence`),api(`/api/workspaces/${r.workspace_id}/enterprise`),api(`/api/workspaces/${r.workspace_id}/cost-governor?run_id=${id}`)]);setReport(rep);setTimeline(tl);setTasks(tk);setAgentMesh(mesh);setAttackSurface(surface);setIntel(ai);setEnterprise(ent);setCostGov(gov);setView('report')}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function approve(){const active=run?.status==='awaiting_approval'?run:dash?.runs?.[0]?.status==='awaiting_approval'?dash.runs[0]:null;if(!active)return setError('Create a free audit or paid detailed scan first; admin approval unlocks testing.');const id=active.run_id||active.id;setBusy(true);setError('');try{await api(`/api/runs/${id}/approve`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decided_by:'admin',reason:'Domain ownership and testing scope approved.'})});const executed=await api(`/api/runs/${id}/execute`,{method:'POST'});setRun(executed);const br=await api(`/api/runs/${id}/browser-recon`,{method:'POST'});setRun({...executed,status:br.status,stage:br.stage,progress:br.progress});await api(`/api/workspaces/${active.workspace_id}/enterprise-program`,{method:'POST'});await load();await openRun({...executed,status:br.status,stage:br.stage,progress:br.progress})}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function approveQueueRun(x){setBusy(true);setError('');try{const approved=await api(`/api/admin/domain-queue/${x.run_id}/approve`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decided_by:'admin',reason:'Domain owner/admin approved from Vanguard queue.'})});setRun(approved);await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function executeQueueRun(x){setBusy(true);setError('');try{const done=await api(`/api/admin/domain-queue/${x.run_id}/execute`,{method:'POST'});await load();await openRun({...done,id:done.run_id})}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function revokeDomain(x){setBusy(true);setError('');try{await api(`/api/admin/domains/${x.asset_id}/revoke`,{method:'POST'});await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function enableSchedule(x){setBusy(true);setError('');try{await api(`/api/admin/schedules/${x.workspace_id}/enable`,{method:'POST'});await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function closeTicket(t){setBusy(true);setError('');try{await api(`/api/remediation-tickets/${t.id}/status`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({status:'closed'})});await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
+  async function retestTicket(t){setBusy(true);setError('');try{await api(`/api/remediation-tickets/${t.id}/retest`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({outcome:'ready_for_retest',reviewer:'analyst',evidence_note:'Client reports fix ready for Vanguard retest.'})});await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function pickIntelMode(e){const m=e.target.value;setIntelMode(m);try{await api('/api/intelligence/models',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode:m})})}catch(err){setError(err.message)}}
 
   const newestRun=dash?.runs?.[0],pendingRun=run?.status==='awaiting_approval'?run:(newestRun?.status==='awaiting_approval'?newestRun:null),current=run||newestRun,findings=report?.findings||dash?.findings||[],commerce=dash?.commerce||{};
   const open=tickets?.tickets?.filter(t=>t.status!=='closed').length;
-  const nav=[{id:'overview',label:'Overview',icon:LayoutDashboard},{id:'scans',label:'Scans',icon:ScanLine,badge:dash?.runs?.length},{id:'approvals',label:'Domain approvals',icon:ShieldCheck,badge:admin?.items?.filter(x=>x.status==='pending').length},{id:'domains',label:'Domain registry',icon:Radio},{id:'remediation',label:'Remediation',icon:ListChecks,badge:open},{id:'schedules',label:'Schedules',icon:CalendarClock},{id:'team',label:'Team & RBAC',icon:Users},{id:'billing',label:'Billing',icon:Receipt},{id:'audit',label:'Audit log',icon:ScrollText},{id:'readiness',label:'Launch readiness',icon:Wrench},{id:'repo',label:'Repo analysis',icon:Code2},{id:'keys',label:'Access keys',icon:KeyRound}];
+  const nav=[{id:'overview',label:'Overview',icon:LayoutDashboard},{id:'scans',label:'Scans',icon:ScanLine,badge:dash?.runs?.length},{id:'mesh',label:'Agent mesh',icon:GitBranch,badge:agentMesh?.agent_status?.length},{id:'authtest',label:'Auth testing',icon:LockKeyhole},{id:'approvals',label:'Domain approvals',icon:ShieldCheck,badge:admin?.items?.filter(x=>x.status==='pending').length},{id:'domains',label:'Domain registry',icon:Radio},{id:'remediation',label:'Remediation',icon:ListChecks,badge:open},{id:'schedules',label:'Schedules',icon:CalendarClock},{id:'team',label:'Team & RBAC',icon:Users},{id:'billing',label:'Billing',icon:Receipt},{id:'audit',label:'Audit log',icon:ScrollText},{id:'readiness',label:'Launch readiness',icon:Wrench},{id:'repo',label:'Repo analysis',icon:Code2},{id:'keys',label:'Access keys',icon:KeyRound}];
   const[repo,setRepo]=useState(null);
   const[intervention,setIntervention]=useState(null);
   async function resumeIntervention(){if(!intervention)return;setBusy(true);setError('');const id=intervention.run_id,wid=intervention.workspace_id;try{await api(`/api/runs/${id}/intervention/resume`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({solved:true,note:'human solved CAPTCHA/login, resumed'})});try{await api(`/api/runs/${id}/active-probe`,{method:'POST'})}catch(e){}setIntervention(null);await load();await openRun({run_id:id,workspace_id:wid,status:'completed'})}catch(e){setError(e.message)}finally{setBusy(false)}}
@@ -63,13 +64,13 @@ function App(){
   return (
     <div className="app">
       <aside className="side">
-        <div className="brand"><div className="logo"><Shield size={20}/></div><div><b>Zer0</b><br/><small>The Vanguard</small></div></div>
+        <div className="brand"><div className="logo"><Shield size={20}/></div><div><b>Vanguard</b><br/><small>by Zer0</small></div></div>
         <nav className="nav">{nav.map(n=><button key={n.id} className={view===n.id?'active':''} onClick={()=>setView(n.id)}><n.icon size={17}/>{n.label}{n.badge?n.badge>0&&<span className="badge">{n.badge}</span>:null}</button>)}</nav>
         <div className="foot">A security agent for your company.</div>
       </aside>
       <div className="main">
         <div className="topbar">
-          <div className="title"><b>{nav.find(n=>n.id===view)?.label||'Console'}</b><p>Zer0 — The Vanguard · enterprise web exposure control plane</p></div>
+          <div className="title"><b>{nav.find(n=>n.id===view)?.label||'Console'}</b><p>Vanguard by Zer0 · enterprise web exposure control plane</p></div>
           <div className="spacer"/>
           <div className="health">
             <span className="chip"><span className={'dot '+(health?.provider?.openai?'ok':'')}/>OpenAI {health?.provider?.openai?'ready':'off'}</span>
@@ -87,9 +88,11 @@ function App(){
           </div>}
           {view==='overview'&&<Overview dash={dash} summary={summary} readiness={readiness} costGov={costGov} current={current} pendingRun={pendingRun} tier={tier} setTier={setTier} url={url} setUrl={setUrl} start={start} buyDetailed={buyDetailed} approve={approve} billing={billing} busy={busy} payment={payment} intelModels={intelModels} intelMode={intelMode} pickIntelMode={pickIntelMode} upi={upi} setUpi={setUpi} mintUpi={mintUpi} upiKey={upiKey} setUpiKey={setUpiKey}/>}
           {view==='scans'&&<Scans dash={dash} run={run} openRun={openRun} current={current}/>}
+          {view==='mesh'&&<AgentMesh mesh={agentMesh} run={run}/>} 
+          {view==='authtest'&&<AuthTesting current={current} setError={setError}/>} 
           {view==='approvals'&&<Approvals admin={admin} onApprove={approveQueueRun} onExecute={executeQueueRun}/>}
           {view==='domains'&&<Domains domains={domains} onRevoke={revokeDomain}/>}
-          {view==='remediation'&&<Remediation tickets={tickets} onClose={closeTicket}/>}
+          {view==='remediation'&&<Remediation tickets={tickets} onClose={closeTicket} onRetest={retestTicket}/>}
           {view==='schedules'&&<Schedules schedules={schedules} onEnable={enableSchedule}/>}
           {view==='team'&&<Team users={users}/>}
           {view==='billing'&&<Billing billing={billing} summary={summary}/>}
@@ -97,7 +100,7 @@ function App(){
           {view==='readiness'&&<Readiness readiness={readiness}/>}
           {view==='repo'&&<RepoAnalyze repo={repo} setRepo={setRepo} busy={busy} setBusy={setBusy} setError={setError}/>}
           {view==='keys'&&<AccessKeys keys={keys} onActivate={activateKey} onRevoke={revokeKey}/>}
-          {view==='report'&&report&&<ReportView report={report} intel={intel} enterprise={enterprise} tasks={tasks} timeline={timeline} costGov={costGov} onClose={()=>setView('scans')}/>}
+          {view==='report'&&report&&<ReportView report={report} intel={intel} enterprise={enterprise} tasks={tasks} timeline={timeline} agentMesh={agentMesh} attackSurface={attackSurface} costGov={costGov} onClose={()=>setView('scans')}/>}
         </div>
       </div>
     </div>
@@ -106,7 +109,7 @@ function App(){
 
 function StatusBar({current}){if(!current)return null;return <div className="statusbar"><Activity size={18} color="#36d399"/><div><b>{current.status}</b><span> · {current.stage}</span></div><div className="prog"><progress max="100" value={current.progress||0}/></div><span>{current.progress||0}%</span></div>}
 function Pill({kind,children}){return <span className={'pill '+kind}>{children}</span>}
-function StatusPill({s}){const v=s||'unknown';const k={completed:'ok',browser_recon_complete:'ok',report_ready:'ok',approved:'ok',awaiting_approval:'warn',payment_required:'bad',queued:'info',domain_revoked:'bad',cancelled:'bad'}[v]||'mut';return <Pill kind={k}>{String(v).replace(/_/g,' ')}</Pill>}
+function StatusPill({s}){const v=s||'unknown';const k={completed:'ok',browser_recon_complete:'ok',report_ready:'ok',approved:'ok',human_verified:'ok',active:'ok',retest_passed:'ok',retest_ready:'info',awaiting_approval:'warn',payment_required:'bad',queued:'info',needs_human_setup:'warn',retest_failed:'bad',domain_revoked:'bad',cancelled:'bad'}[v]||'mut';return <Pill kind={k}>{String(v).replace(/_/g,' ')}</Pill>}
 
 function Overview({dash,summary,readiness,costGov,current,pendingRun,tier,setTier,url,setUrl,start,buyDetailed,approve,billing,busy,payment,intelModels,intelMode,pickIntelMode,upi,setUpi,mintUpi,upiKey,setUpiKey}){
   const s=summary?.operations||{}, rev=summary?.commerce||{}, risk=summary?.risk||{}, com=dash?.commerce||{};
@@ -162,6 +165,48 @@ function Scans({dash,run,openRun,current}){
   </div>;
 }
 
+function AgentMesh({mesh,run}){
+  if(!mesh)return <div className="view"><div className="hero"><span className="eyebrow">Multi-agent control plane</span><h2>No agent mesh loaded yet.</h2><p>Open a completed scan from the Scans tab to run the Supervisor, Threat Analyst, Red Team, Remediation, Compliance, Evidence QA, and Reporter agents over its evidence.</p></div></div>;
+  const outputs=mesh.outputs||{};
+  return <div className="view">
+    <div className="hero">
+      <span className="eyebrow">Multi-agent security agency</span>
+      <h2>Seven specialist agents reviewed run #{mesh.run_id||run?.run_id}.</h2>
+      <p>Agents hand off evidence, risk chains, remediation, compliance mapping, and client-safe reporting under a no-exploit safety boundary.</p>
+      <div className="hint">Cost guardrail: {mesh.cost_guardrail?.policy}</div>
+    </div>
+    <div className="grid">{(mesh.agent_status||[]).map(a=><div key={a.agent} className={'card '+(a.llm_backed?'good':'')}><div className="ic"><GitBranch size={18}/></div><h3>{a.agent}</h3><b>{a.llm_backed?'LLM':'Deterministic'}</b><p>{a.source} · {a.status}</p></div>)}</div>
+    <div className="cols2">
+      <div className="panel"><h3>Supervisor decision record</h3><p>{outputs.supervisor?.decision_record}</p><div className="hint">Next agent: {outputs.supervisor?.next_agent}</div></div>
+      <div className="panel"><h3>Evidence QA</h3><p>{outputs.evidence_qa?.ready_for_client?'All report claims have baseline evidence.':'Evidence gaps require review before client delivery.'}</p>{(outputs.evidence_qa?.gaps||[]).map((g,i)=><div key={i} className="log">{g.severity} · {g.title} · {g.gap}</div>)}</div>
+    </div>
+    <div className="panel"><h3>Agent handoffs</h3>{(mesh.handoffs||[]).map((h,i)=><div key={i} className="item"><div className="top"><b>{h.from} → {h.to}</b><Pill kind="info">{h.artifact}</Pill></div></div>)}</div>
+    <div className="panel"><h3>Risk register</h3>{(mesh.risk_register||[]).map(r=><div key={r.risk_id} className="item"><div className="top"><b><span className={'sev '+r.severity}>{r.severity}</span>{r.title}</b><Pill kind="mut">{r.sla}</Pill></div><span className="meta">{r.risk_id} · owner {r.owner}</span></div>)}</div>
+    <div className="cols2"><div className="panel"><h3>Compliance Mapper</h3><pre>{outputs.compliance?.control_map}</pre></div><div className="panel"><h3>Remediation Engineer</h3><pre>{outputs.remediation?.fixes}</pre></div></div>
+  </div>;
+}
+
+function AuthTesting({current,setError}){
+  const[busy,setBusy]=useState(false),[state,setState]=useState(null),[result,setResult]=useState(null);
+  const wid=current?.workspace_id, rid=current?.run_id||current?.id;
+  async function call(path,options){const r=await fetch(API+path,options),j=await r.json().catch(()=>({detail:r.statusText}));if(!r.ok)throw new Error(j.detail||`HTTP ${r.status}`);return j}
+  async function load(){if(!wid)return;const [creds,sessions,rules]=await Promise.all([call(`/api/workspaces/${wid}/credentials`),call(`/api/workspaces/${wid}/auth-sessions`),call(`/api/workspaces/${wid}/scope-rules`)]);setState({creds,sessions,rules})}
+  useEffect(()=>{load().catch(e=>setError(e.message))},[wid]);
+  async function seed(){if(!wid)return setError('Open a scan first.');setBusy(true);try{
+    const c=await call(`/api/workspaces/${wid}/credentials`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({label:'Vanguard managed test account',username:'security-admin@example.com',secret_ref:'external-secret-not-stored',role_name:'standard_user'})});
+    await call(`/api/workspaces/${wid}/scope-rules`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({include_pattern:'/*',exclude_pattern:'/logout,/delete,/billing,/settings/destructive',test_level:'safe_forms_dry_run'})});
+    await call(`/api/workspaces/${wid}/auth-sessions`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({credential_id:c.credential.id,status:'human_verified',success_indicator:'dashboard'})});
+    await load();
+  }catch(e){setError(e.message)}finally{setBusy(false)}}
+  async function runDry(){if(!rid)return setError('Open a completed scan first.');setBusy(true);setResult(null);try{const out=await call(`/api/runs/${rid}/authenticated-form-test`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({dry_run:true,reviewer:'admin',reason:'Authorized authenticated safe-form dry run.'})});setResult(out);await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
+  return <div className="view">
+    <div className="hero"><span className="eyebrow">Authenticated app testing workflow</span><h2>Prepare credential stubs, scope rules, and safe form dry-runs.</h2><p>Vanguard stores only external secret references, requires domain approval, and blocks live form submissions. This phase reviews authenticated forms without sending credentials or changing state.</p><div className="row"><button className="btn" disabled={busy||!wid} onClick={seed}>{busy?'Working…':'Seed credential + auth session'}</button><button className="btn ghost" disabled={busy||!rid} onClick={runDry}>Run safe form dry-run</button></div></div>
+    <div className="grid"><div className="card"><div className="ic"><KeyRound size={18}/></div><h3>Credential stubs</h3><b>{state?.creds?.credentials?.length||0}</b><p>No secrets stored</p></div><div className="card"><div className="ic"><LockKeyhole size={18}/></div><h3>Auth sessions</h3><b>{state?.sessions?.sessions?.length||0}</b><p>Human verified profiles</p></div><div className="card"><div className="ic"><ShieldCheck size={18}/></div><h3>Scope rules</h3><b>{state?.rules?.rules?.length||0}</b><p>Excludes destructive paths</p></div><div className="card good"><div className="ic"><ListChecks size={18}/></div><h3>Last dry-run</h3><b>{result?.forms_reviewed??0}</b><p>{result?`${result.blocked_forms} blocked · no live submit`:'Not run'}</p></div></div>
+    <div className="cols2"><div className="panel"><h3>Credentials</h3>{(state?.creds?.credentials||[]).map(c=><div key={c.id} className="item"><div className="top"><b>{c.label}</b><Pill kind="info">{c.role_name}</Pill></div><span className="meta">{c.username} · {c.secret_ref}</span></div>)}</div><div className="panel"><h3>Auth sessions</h3>{(state?.sessions?.sessions||[]).map(s=><div key={s.id} className="item"><div className="top"><b>session #{s.id}</b>{StatusPill(s.status)}</div><span className="meta">asset {s.asset_id} · credential {s.credential_id} · indicator {s.success_indicator}</span></div>)}</div></div>
+    {result&&<div className="panel"><h3>Safe form dry-run result <span className="pill ok">no live submission</span></h3>{result.reviewed.map(f=><div key={f.index} className="item"><div className="top"><b>{f.method} {f.action}</b><Pill kind={f.decision==='blocked'?'warn':'ok'}>{f.decision}</Pill></div><span className="sub">inputs: {(f.inputs||[]).join(', ')||'none'} · reasons: {(f.reasons||[]).join(', ')||'none'}</span></div>)}</div>}
+  </div>;
+}
+
 function Approvals({admin,onApprove,onExecute}){
   const items=(admin?.items||[]).filter(Boolean);
   return <div className="view"><div className="panel"><h3>Admin domain queue <span className="count">{items.length}</span></h3>
@@ -186,14 +231,14 @@ function Domains({domains,onRevoke}){
   </div></div>;
 }
 
-function Remediation({tickets,onClose}){
+function Remediation({tickets,onClose,onRetest}){
   const t=tickets?.tickets||[];
   return <div className="view"><div className="panel"><h3>Remediation tickets <span className="count">{t.length}</span></h3>
     {t.length===0&&<div className="empty">No remediation tickets. Run a scan to generate them from findings.</div>}
     {t.map(x=><div key={x.id} className="item">
       <div className="top"><b><span className={'sev '+x.severity}>{x.severity}</span>{x.title}</b>{StatusPill(x.status)}</div>
-      <span className="meta">owner {x.owner} · finding #{x.finding_id}</span>
-      {x.status!=='closed'&&<button className="btn ghost" onClick={()=>onClose(x)}>Close ticket</button>}
+      <span className="meta">owner {x.owner} · finding #{x.finding_id}{x.retest_run_id?` · retest run #${x.retest_run_id}`:''}</span>
+      <div className="row" style={{marginTop:8}}>{x.status!=='closed'&&<button className="btn ghost" onClick={()=>onClose(x)}>Close ticket</button>}{!x.status?.startsWith('retest_')&&<button className="btn" onClick={()=>onRetest(x)}>Create retest</button>}</div>
     </div>)}
   </div></div>;
 }
@@ -255,10 +300,10 @@ function Readiness({readiness}){
   </div>;
 }
 
-function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
+function ReportView({report,intel,enterprise,tasks,timeline,agentMesh,attackSurface,costGov,onClose}){
   return <div className="view"><div className="report">
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h2><FileText/> Vanguard security report</h2><button className="btn ghost" onClick={onClose}>← Back to scans</button></div>
-    <div className="actions"><a href={`${API}/api/runs/${report.run_id}/report.html`} target="_blank">Open HTML report</a><a href={`${API}/api/runs/${report.run_id}/evidence-bundle`} target="_blank">Evidence JSON</a><a href={`${API}/api/client/reports/${report.run_id}`} target="_blank">Client-safe</a><a href={`${API}/api/runs/${report.run_id}/attestation`} target="_blank">Attestation</a></div>
+    <div className="actions"><a href={`${API}/api/runs/${report.run_id}/report.html`} target="_blank">Open HTML report</a><a href={`${API}/api/runs/${report.run_id}/executive-pack.html`} target="_blank">Executive pack</a><a href={`${API}/api/runs/${report.run_id}/evidence-bundle`} target="_blank">Evidence JSON</a><a href={`${API}/api/client/reports/${report.run_id}`} target="_blank">Client-safe</a><a href={`${API}/api/runs/${report.run_id}/attestation`} target="_blank">Attestation</a></div>
     {(()=>{const sc=report.security_score,col=sc>=80?'#36d399':sc>=50?'#f7b955':'#ff5c7c',rb=report.detailed_depth?.risk_breakdown;return <div style={{display:'flex',gap:20,alignItems:'center',marginTop:14,padding:20,borderRadius:18,border:`1px solid ${col}55`,background:`linear-gradient(120deg, ${col}18, transparent)`}}>
       <div style={{flexShrink:0,width:96,height:96,borderRadius:'50%',display:'grid',placeItems:'center',border:`4px solid ${col}`,background:`${col}12`}}><div style={{textAlign:'center'}}><div style={{fontSize:30,fontWeight:800,lineHeight:1,color:col}}>{sc}</div><div style={{fontSize:10,opacity:0.6}}>/100</div></div></div>
       <div style={{flex:1}}>
@@ -271,6 +316,19 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
       </div>
     </div>;})()}
     {costGov&&<div className="hint">Cost governor: {costGov.allowed?'within budget':'over budget'} · remaining ${costGov.remaining_usd} · projected ${costGov.projected_run_cost_usd}</div>}
+    {attackSurface&&<div className="panel" style={{marginTop:16,border:'1px solid #38bdf8',background:'linear-gradient(180deg,rgba(56,189,248,0.08),transparent)'}}>
+      <h3><GitBranch size={16}/> Attack surface graph <span className="pill info">{attackSurface.summary?.nodes} nodes · {attackSurface.summary?.edges} edges</span></h3>
+      <div className="grid" style={{marginTop:8}}>
+        <div className="card"><div className="ic"><ScanLine size={18}/></div><h3>Pages</h3><b>{attackSurface.coverage?.crawl_pages||0}</b><p>{attackSurface.coverage?.browser_links||0} browser links</p></div>
+        <div className="card"><div className="ic"><LockKeyhole size={18}/></div><h3>Forms</h3><b>{attackSurface.summary?.forms||0}</b><p>auth dry-run candidates</p></div>
+        <div className="card"><div className="ic"><Code2 size={18}/></div><h3>APIs</h3><b>{attackSurface.summary?.apis||0}</b><p>{attackSurface.coverage?.api_endpoints||0} observed endpoints</p></div>
+        <div className={'card '+((attackSurface.summary?.hotspots||0)>0?'alert':'good')}><div className="ic"><AlertTriangle size={18}/></div><h3>Hotspots</h3><b>{attackSurface.summary?.hotspots||0}</b><p>{attackSurface.summary?.findings||0} findings mapped</p></div>
+      </div>
+      <div className="cols2" style={{marginTop:12}}>
+        <div><h4>Hotspots</h4>{(attackSurface.hotspots||[]).length===0&&<div className="empty">No critical/high hotspots mapped.</div>}{(attackSurface.hotspots||[]).map(h=><div key={h.id} className="item"><div className="top"><b>{h.label}</b><Pill kind={h.risk==='bad'?'bad':h.risk==='warn'?'warn':'info'}>{h.kind}</Pill></div></div>)}</div>
+        <div><h4>Attack paths</h4>{(attackSurface.attack_paths||[]).length===0&&<div className="empty">No chained path detected from current evidence.</div>}{(attackSurface.attack_paths||[]).map((p,i)=><div key={i} className="item"><div className="top"><b>{p.name}</b><Pill kind={p.priority==='High'?'bad':'warn'}>{p.priority}</Pill></div><span className="sub">{p.steps.join(' → ')}</span></div>)}</div>
+      </div>
+    </div>}
     {report.deep_analysis&&<div className="panel" style={{marginTop:16,border:'1px solid #7c5cff',background:'linear-gradient(180deg,rgba(124,92,255,0.10),transparent)'}}>
       <h3><Brain size={16}/> Deep analysis <span className={'pill '+(report.deep_analysis.llm_backed?'info':'mut')}>{report.deep_analysis.llm_backed?`senior-pentester LLM · ${report.deep_analysis.source}`:'deterministic'}</span></h3>
       <pre style={{marginTop:8,whiteSpace:'pre-wrap',lineHeight:1.6,background:'#0d1b2f',padding:14,borderRadius:12,border:'1px solid #263d5b',fontFamily:'inherit'}}>{report.deep_analysis.findings_text}</pre>
@@ -306,6 +364,11 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
         <div className="card"><div className="ic"><ShieldCheck size={18}/></div><h3>Providers</h3><b style={{fontSize:14}}>{(report.observability.providers_used||[]).join(', ')||'none'}</b><p>resilient failover</p></div>
       </div>
       <div style={{marginTop:10}}>{report.observability.calls.map((c,i)=><div key={i} className="log">{c.ok?'✓':'✗'} {c.agent} · {c.provider}/{c.model} · {c.latency_ms}ms{c.fallback?' · fallback'+(c.error?' ('+c.error+')':''):''}</div>)}</div>
+    </div>}
+    {agentMesh&&<div className="panel" style={{marginTop:16,border:'1px solid #36d399',background:'linear-gradient(180deg,rgba(54,211,153,0.07),transparent)'}}>
+      <h3><GitBranch size={16}/> Multi-agent control plane <span className="pill ok">{agentMesh.agent_status?.length||0} agents</span></h3>
+      <p style={{marginTop:8,lineHeight:1.6}}>{agentMesh.outputs?.supervisor?.decision_record}</p>
+      <div className="grid" style={{marginTop:8}}>{(agentMesh.agent_status||[]).map(a=><div key={a.agent} className="card"><div className="ic"><GitBranch size={18}/></div><h3>{a.agent}</h3><b>{a.llm_backed?'LLM':'Deterministic'}</b><p>{a.source}</p></div>)}</div>
     </div>}
     {report.memory?.long_term&&<div className="panel" style={{marginTop:16,border:'1px solid #d9a441',background:'linear-gradient(180deg,rgba(217,164,65,0.08),transparent)'}}>
       <h3><Brain size={16}/> Agent memory <span className="pill mut">accumulating</span></h3>
