@@ -24,7 +24,7 @@ echo "==> Service : $SERVICE ($ENV_TARGET)"
 
 # Non-secret runtime env. API keys/UPI live in Secret Manager (see --set-secrets
 # below) so they survive every deploy — set once with scripts/setup-secrets.sh.
-RUNTIME_ENV="ENVIRONMENT=$ENV_TARGET,CORS_ORIGINS=*,OPENAI_MODEL=gpt-5-chat-latest,GEMINI_MODEL=gemini-2.5-flash"
+RUNTIME_ENV="ENVIRONMENT=$ENV_TARGET,CORS_ORIGINS=*,OPENAI_MODEL=gpt-5.6-terra,GEMINI_MODEL=gemini-2.5-flash"
 SECRETS="AGENT_OPENAI_API_KEY=vanguard-openai-key:latest,OPENAI_API_KEY=vanguard-openai-key:latest,AGENT_GEMINI_API_KEY=vanguard-gemini-key:latest,GEMINI_API_KEY=vanguard-gemini-key:latest,UPI_ID=vanguard-upi-id:latest"
 
 gcloud run deploy "$SERVICE" \

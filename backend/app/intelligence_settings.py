@@ -9,7 +9,7 @@ AVAILABLE = [
     {"id": "gemini", "label": "Gemini 2.5 Flash Lite (cheap testing)", "provider": "gemini", "model": "gemini-2.5-flash-lite"},
     {"id": "gemini-flash", "label": "Gemini 2.5 Flash", "provider": "gemini", "model": "gemini-2.5-flash"},
     {"id": "openai-mini", "label": "OpenAI GPT-4.1 mini (cheap)", "provider": "openai", "model": "gpt-4.1-mini"},
-    {"id": "openai", "label": "OpenAI GPT-5 (best, demo)", "provider": "openai", "model": "gpt-5-chat-latest"},
+    {"id": "openai", "label": "OpenAI GPT-5.6 frontier (best, demo)", "provider": "openai", "model": "gpt-5.6-terra"},
 ]
 
 _IDS = {a["id"]: a for a in AVAILABLE}
