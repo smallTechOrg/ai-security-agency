@@ -316,6 +316,15 @@ def run_screenshot(run_id:int, db:Session=Depends(get_db)):
     if not shot.is_file(): raise HTTPException(404,'no screenshot captured for this run')
     return FileResponse(str(shot), media_type='image/png')
 
+@app.post('/api/runs/{run_id}/active-probe')
+def active_probe_endpoint(run_id:int, db:Session=Depends(get_db)):
+    run=db.get(models.AuditRun,run_id)
+    if not run: raise HTTPException(404,'run not found')
+    asset=db.get(models.Asset,run.asset_id)
+    if not asset or not asset.authorized: raise HTTPException(403,'domain must be admin-approved for authorized active testing')
+    from . import active_probe
+    return active_probe.run(db, run_id)
+
 @app.post('/api/runs/{run_id}/browser-recon')
 def browser_recon_endpoint(run_id:int, db:Session=Depends(get_db)):
     run=db.get(models.AuditRun,run_id)

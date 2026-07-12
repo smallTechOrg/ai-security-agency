@@ -29,6 +29,7 @@ function App(){
       await api(`/api/runs/${id}/approve`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decided_by:'admin (demo auto-approve)',reason:'Authorized demo scan.'})});
       const executed=await api(`/api/runs/${id}/execute`,{method:'POST'});setRun({...executed,stage:'browser recon',progress:70});
       try{await api(`/api/runs/${id}/browser-recon`,{method:'POST'});}catch(e){/* browser recon optional; baseline results still show */}
+      try{await api(`/api/runs/${id}/active-probe`,{method:'POST'});}catch(e){/* active probe optional; authorized domains only */}
       await api(`/api/workspaces/${j.workspace_id}/enterprise-program`,{method:'POST'}).catch(()=>{});
       await load();
       await openRun({run_id:id,workspace_id:j.workspace_id,status:'completed'});
@@ -252,7 +253,6 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
     {report.agent_loop&&<div className="panel" style={{marginTop:16,border:'1px solid #36d399',background:'linear-gradient(180deg,rgba(54,211,153,0.08),transparent)'}}>
       <h3><Brain size={16}/> Agentic reasoning loop <span className="pill ok">{report.agent_loop.iterations} iterations</span>{report.agent_loop.multi_agent&&<span className="pill info">MULTI-AGENT · {report.agent_loop.llm_agents} LLM agents</span>}<span className="pill mut">stop: {report.agent_loop.stop_reason}</span></h3>
       <div style={{marginTop:8}}>{report.agent_loop.trace.map((t,i)=><div key={i} className="item" style={{borderLeft:'2px solid '+(t.llm_backed?'#7c5cff':'#36d399')}}><div className="top"><b>#{t.iter} · {t.agent} agent</b>{t.llm_backed&&<span className="pill info">🤖 LLM · {t.llm_source}</span>}<span className="pill mut">{t.decision}</span></div><span className="sub">{t.detail}</span></div>)}</div>
-      {report.agent_loop.skipped?.length>0&&<div style={{marginTop:10,opacity:0.45}}><h4 style={{opacity:0.8}}>Agents not triggered on this target</h4>{report.agent_loop.skipped.map((s,i)=><div key={i} className="item" style={{borderLeft:'2px dashed #4a5a6a'}}><div className="top"><b style={{textDecoration:'line-through'}}>{s.agent} agent</b><span className="pill mut">skipped</span></div><span className="sub">{s.decision} — {s.reason}</span></div>)}</div>}
       <h4 style={{marginTop:14}}>🤖 Recommended next actions</h4>
       {report.agent_loop.recommended_actions.map((a,i)=><div key={i} className="item"><div className="top"><b>{a.action}</b><span className={'pill '+(a.priority==='High'?'bad':a.priority==='Medium'?'warn':'mut')}>{a.priority}</span></div><span className="sub">{a.why}</span></div>)}
     </div>}
