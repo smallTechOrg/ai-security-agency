@@ -171,18 +171,28 @@ def run(db: Session, run_id: int) -> dict:
         return {'ok': False, 'reason': 'domain not authorized for active testing'}
     t = audit.task(db, run.id, 'safe_active_probe', asset.url)
     results = []
-    checks = (probe_reflected_input, probe_cors, probe_open_redirect, probe_clickjacking,
-              probe_sql_error_indicator, probe_http_methods, probe_host_header, probe_error_disclosure)
+    checks = [('Reflected input (XSS indicator)', probe_reflected_input),
+              ('CORS misconfiguration', probe_cors),
+              ('Open redirect', probe_open_redirect),
+              ('Clickjacking (framable)', probe_clickjacking),
+              ('SQL error signature', probe_sql_error_indicator),
+              ('Risky HTTP methods', probe_http_methods),
+              ('Host-header injection', probe_host_header),
+              ('Verbose error disclosure', probe_error_disclosure)]
+    check_results = []
     with _client() as client:
-        for fn in checks:
+        for name, fn in checks:
             f = fn(client, asset.url)
+            check_results.append({'check': name, 'issue_found': bool(f),
+                                  'severity': f[0] if f else None, 'title': f[1] if f else None})
             if f:
                 results.append(f)
                 audit.create_finding(db, run.id, *f)
     db.add(models.Evidence(run_id=run.id, kind='active-probe',
-                           title='Safe active probe results',
+                           title='Safe active probe (authorized penetration test)',
                            data={'authorized': True, 'non_destructive': True,
-                                 'findings': len(results), 'checks_run': len(checks), 'canary': CANARY}))
+                                 'findings': len(results), 'checks_run': len(checks),
+                                 'checks': check_results, 'canary': CANARY}))
     audit.finish_task(db, t, f'Ran {len(checks)} non-destructive active probes; {len(results)} issues confirmed')
     audit.cost(db, run.id, 'deterministic', 'safe_active_probe', 0.0, detail={'findings': len(results)})
     model = dict(run.app_model or {}); model['active_probe'] = True; run.app_model = model

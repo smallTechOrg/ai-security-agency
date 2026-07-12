@@ -250,11 +250,9 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
     <div className="score">Security score <b>{report.security_score}</b>/100 · {report.certificate_status}</div>
     <p>{report.executive_summary}</p>
     {costGov&&<div className="hint">Cost governor: {costGov.allowed?'within budget':'over budget'} · remaining ${costGov.remaining_usd} · projected ${costGov.projected_run_cost_usd}</div>}
-    {report.agent_loop&&<div className="panel" style={{marginTop:16,border:'1px solid #36d399',background:'linear-gradient(180deg,rgba(54,211,153,0.08),transparent)'}}>
-      <h3><Brain size={16}/> Agentic reasoning loop <span className="pill ok">{report.agent_loop.iterations} iterations</span>{report.agent_loop.multi_agent&&<span className="pill info">MULTI-AGENT · {report.agent_loop.llm_agents} LLM agents</span>}<span className="pill mut">stop: {report.agent_loop.stop_reason}</span></h3>
-      <div style={{marginTop:8}}>{report.agent_loop.trace.map((t,i)=><div key={i} className="item" style={{borderLeft:'2px solid '+(t.llm_backed?'#7c5cff':'#36d399')}}><div className="top"><b>#{t.iter} · {t.agent} agent</b>{t.llm_backed&&<span className="pill info">🤖 LLM · {t.llm_source}</span>}<span className="pill mut">{t.decision}</span></div><span className="sub">{t.detail}</span></div>)}</div>
-      <h4 style={{marginTop:14}}>🤖 Recommended next actions</h4>
-      {report.agent_loop.recommended_actions.map((a,i)=><div key={i} className="item"><div className="top"><b>{a.action}</b><span className={'pill '+(a.priority==='High'?'bad':a.priority==='Medium'?'warn':'mut')}>{a.priority}</span></div><span className="sub">{a.why}</span></div>)}
+    {report.active_probe&&<div className="panel" style={{marginTop:16,border:'1px solid #ff5c7c',background:'linear-gradient(180deg,rgba(255,92,124,0.09),transparent)'}}>
+      <h3><ScanLine size={16}/> Penetration test — active probes <span className="pill bad">{report.active_probe.findings} issues</span><span className="pill mut">{report.active_probe.checks_run} checks · non-destructive</span></h3>
+      <div style={{marginTop:8}}>{(report.active_probe.checks||[]).map((c,i)=><div key={i} className="item" style={{borderLeft:'2px solid '+(c.issue_found?'#ff5c7c':'#36d399')}}><div className="top"><b>{c.issue_found?'⚠️':'✓'} {c.check}</b><span className={'pill '+(c.issue_found?'bad':'ok')}>{c.issue_found?c.severity:'pass'}</span></div>{c.title&&<span className="sub">{c.title}</span>}</div>)}</div>
     </div>}
     {report.reporter&&<div className="panel" style={{marginTop:16}}>
       <h3><FileText size={16}/> Reporter sub-agent <span className={'pill '+(report.reporter.llm_backed?'ok':'mut')}>{report.reporter.llm_backed?`LLM · ${report.reporter.source}`:'deterministic'}</span></h3>
@@ -313,6 +311,13 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
       <div><h3>AI report intelligence</h3><pre>{JSON.stringify(intel,null,2)}</pre><h3>Enterprise scaffold</h3><pre>{JSON.stringify(enterprise,null,2)}</pre></div>
       <div><h3>Agent tasks</h3>{tasks?.tasks?.map((t,i)=><div className="log" key={i}>{t.status} · {t.module} · {t.summary}</div>)}<h3>Cost events</h3>{tasks?.costs?.map((c,i)=><div className="log" key={i}>${c.estimated_usd} · {c.provider} · {c.operation}</div>)}<h3>Evidence timeline</h3>{timeline?.logs?.map((l,i)=><div className="log" key={i}>{l.created_at} · {l.actor} · {l.action}</div>)}</div>
     </div>
+    {report.agent_loop&&<details style={{marginTop:16}}><summary style={{cursor:'pointer',opacity:0.7,padding:'8px 0'}}>▸ Agentic reasoning loop — {report.agent_loop.iterations} steps{report.agent_loop.multi_agent?`, ${report.agent_loop.llm_agents} LLM agents`:''} (how the agents ran)</summary>
+      <div className="panel" style={{marginTop:8,border:'1px solid #36d399',background:'linear-gradient(180deg,rgba(54,211,153,0.06),transparent)'}}>
+        <div>{report.agent_loop.trace.map((t,i)=><div key={i} className="item" style={{borderLeft:'2px solid '+(t.llm_backed?'#7c5cff':'#36d399')}}><div className="top"><b>#{t.iter} · {t.agent} agent</b>{t.llm_backed&&<span className="pill info">🤖 LLM · {t.llm_source}</span>}<span className="pill mut">{t.decision}</span></div><span className="sub">{t.detail}</span></div>)}</div>
+        <h4 style={{marginTop:14}}>🤖 Recommended next actions</h4>
+        {report.agent_loop.recommended_actions.map((a,i)=><div key={i} className="item"><div className="top"><b>{a.action}</b><span className={'pill '+(a.priority==='High'?'bad':a.priority==='Medium'?'warn':'mut')}>{a.priority}</span></div><span className="sub">{a.why}</span></div>)}
+      </div>
+    </details>}
     {report.browser?.screenshot_available&&<div className="panel" style={{marginTop:16}}>
       <h3><ScanLine size={16}/> Rendered page evidence <span className="count">full-page capture</span></h3>
       <p className="sub">Real headless-Chromium screenshot captured during browser recon — visual proof of the assessed surface.</p>
