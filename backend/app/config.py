@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
     default_budget_usd: float = 2.0
+    browser_recon_enabled: bool = True
+    browser_headless: bool = True
+    browser_timeout_ms: int = 15000
+    browser_max_network_events: int = 100
+    browser_artifacts_dir: str = "data/artifacts"
     model_config = SettingsConfigDict(env_file=(ROOT/'.env', ROOT/'backend/.env', '.env'), extra='ignore')
     @property
     def openai_key_present(self) -> bool: return bool((self.agent_openai_api_key or self.openai_api_key).strip())

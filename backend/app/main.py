@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import SessionLocal, init_db, db_health
 from . import models, schemas, audit
+from . import browser_recon, llm
 from .safety import validate_public_http_url
 app=FastAPI(title='AI Security Agency', version='0.1.0')
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in settings.cors_origins.split(',') if o.strip()], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
@@ -66,3 +67,27 @@ def tasks(run_id:int, db:Session=Depends(get_db)):
 @app.get('/api/policy')
 def policy():
     return {'phase':'safe-first','allowed':['authorized public http/https targets','same-origin crawl','headers/TLS/forms/common public files','evidence-backed reporting'], 'blocked':['private/internal targets','destructive exploits','credential attacks','brute force','DoS/rate abuse','data exfiltration'], 'requires_approval':['authenticated testing','safe active probes','deep active tests','client-visible certificate']}
+
+@app.post('/api/runs/{run_id}/browser-recon')
+def browser_recon_endpoint(run_id:int, db:Session=Depends(get_db)):
+    run=db.get(models.AuditRun,run_id)
+    if not run: raise HTTPException(404,'run not found')
+    if run.status=='awaiting_approval': raise HTTPException(409,'approval required')
+    out=browser_recon.run_browser_recon(db,run_id)
+    return {'run_id':out.id,'status':out.status,'stage':out.stage,'progress':out.progress,'app_model':out.app_model}
+@app.get('/api/runs/{run_id}/intelligence')
+def report_intelligence(run_id:int, db:Session=Depends(get_db)):
+    if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
+    report=audit.build_report(db,run_id)
+    return llm.generate_report_intelligence(db,run_id,report)
+@app.get('/api/workspaces/{workspace_id}/enterprise')
+def enterprise(workspace_id:int, db:Session=Depends(get_db)):
+    creds=db.query(models.CredentialVaultStub).filter_by(workspace_id=workspace_id).all()
+    schedules=db.query(models.Schedule).filter_by(workspace_id=workspace_id).all()
+    return {'rbac_roles':['owner','admin','approver','analyst','viewer','client_viewer'],'credential_stubs':[{'id':c.id,'label':c.label,'role_name':c.role_name,'allowed_use':c.allowed_use,'secret_ref':c.secret_ref} for c in creds],'schedules':[{'id':x.id,'cadence':x.cadence,'status':x.status,'next_run_note':x.next_run_note} for x in schedules],'compliance_exports':['html_report','json_evidence_bundle','certificate_attestation_stub'],'enterprise_ready':True}
+@app.post('/api/workspaces/{workspace_id}/demo-enterprise')
+def demo_enterprise(workspace_id:int, db:Session=Depends(get_db)):
+    asset=db.query(models.Asset).filter_by(workspace_id=workspace_id).first()
+    db.add(models.CredentialVaultStub(workspace_id=workspace_id,label='Demo test account',username='analyst@example.com',role_name='standard_user'))
+    if asset: db.add(models.Schedule(workspace_id=workspace_id,asset_id=asset.id,cadence='weekly',status='paused',next_run_note='Requires client approval before enabling recurring scans.'))
+    db.commit(); return enterprise(workspace_id,db)

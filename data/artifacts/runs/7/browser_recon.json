@@ -1,0 +1,11 @@
+{
+  "url": "https://example.com/",
+  "links": [
+    "https://iana.org/domains/example"
+  ],
+  "forms": [],
+  "scripts": [],
+  "human_takeover": false,
+  "takeover_reason": "",
+  "title": "Example Domain"
+}
