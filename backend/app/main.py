@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import SessionLocal, init_db, db_health
 from . import models, schemas, audit
+from .safety import validate_public_http_url
 app=FastAPI(title='AI Security Agency', version='0.1.0')
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in settings.cors_origins.split(',') if o.strip()], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
 @app.on_event('startup')
@@ -16,6 +17,7 @@ def get_db():
 def health(): return {'status':'ok' if db_health() else 'error','db':True,'provider':{'openai':settings.openai_key_present,'gemini':settings.gemini_key_present}}
 @app.post('/api/bootstrap', response_model=schemas.RunOut)
 def bootstrap(req:schemas.BootstrapRequest, db:Session=Depends(get_db)):
+    validate_public_http_url(str(req.target_url))
     client=models.Client(name=req.client_name); db.add(client); db.commit(); db.refresh(client)
     ws=models.Workspace(client_id=client.id,name=req.workspace_name,budget_usd=req.budget_usd); db.add(ws); db.commit(); db.refresh(ws)
     asset=models.Asset(workspace_id=ws.id,url=str(req.target_url),authorized=True,scope_note=req.scope_note); db.add(asset); db.commit(); db.refresh(asset)
@@ -49,3 +51,18 @@ def report(run_id:int, db:Session=Depends(get_db)):
 def timeline(run_id:int, db:Session=Depends(get_db)):
     logs=db.query(models.AuditLog).filter_by(run_id=run_id).order_by(models.AuditLog.id).all(); evidence=db.query(models.Evidence).filter_by(run_id=run_id).order_by(models.Evidence.id).all()
     return {'logs':[{'actor':l.actor,'action':l.action,'detail':l.detail,'created_at':l.created_at.isoformat()} for l in logs], 'evidence':[{'kind':e.kind,'title':e.title,'data':e.data,'created_at':e.created_at.isoformat()} for e in evidence]}
+
+@app.post('/api/runs/{run_id}/cancel')
+def cancel_run(run_id:int, db:Session=Depends(get_db)):
+    run=db.get(models.AuditRun,run_id)
+    if not run: raise HTTPException(404,'run not found')
+    run.status='cancelled'; run.stage='cancelled_by_operator'; db.commit(); audit.log(db,run.workspace_id,run.id,'run.cancelled',{},actor='operator'); return {'ok':True,'status':run.status}
+@app.get('/api/runs/{run_id}/tasks')
+def tasks(run_id:int, db:Session=Depends(get_db)):
+    rows=db.query(models.ScannerTask).filter_by(run_id=run_id).order_by(models.ScannerTask.id).all()
+    costs=db.query(models.CostEvent).filter_by(run_id=run_id).order_by(models.CostEvent.id).all()
+    reports=db.query(models.ReportVersion).filter_by(run_id=run_id).order_by(models.ReportVersion.id.desc()).all()
+    return {'tasks':[{'module':t.module,'target':t.target,'status':t.status,'summary':t.summary,'error':t.error} for t in rows], 'costs':[{'provider':c.provider,'operation':c.operation,'estimated_usd':c.estimated_usd,'estimated_tokens':c.estimated_tokens,'detail':c.detail} for c in costs], 'report_versions':[{'id':r.id,'status':r.status,'created_at':r.created_at.isoformat()} for r in reports]}
+@app.get('/api/policy')
+def policy():
+    return {'phase':'safe-first','allowed':['authorized public http/https targets','same-origin crawl','headers/TLS/forms/common public files','evidence-backed reporting'], 'blocked':['private/internal targets','destructive exploits','credential attacks','brute force','DoS/rate abuse','data exfiltration'], 'requires_approval':['authenticated testing','safe active probes','deep active tests','client-visible certificate']}

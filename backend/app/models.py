@@ -20,3 +20,14 @@ class AuditLog(Base):
     __tablename__='audit_logs'; id:Mapped[int]=mapped_column(Integer, primary_key=True); workspace_id:Mapped[int]=mapped_column(Integer, default=0); run_id:Mapped[int]=mapped_column(Integer, default=0); actor:Mapped[str]=mapped_column(String(80), default='system'); action:Mapped[str]=mapped_column(String(200)); detail:Mapped[dict]=mapped_column(JSON, default=dict); created_at:Mapped[datetime]=mapped_column(DateTime, default=datetime.utcnow)
 class Playbook(Base):
     __tablename__='playbooks'; id:Mapped[int]=mapped_column(Integer, primary_key=True); name:Mapped[str]=mapped_column(String(200)); trigger:Mapped[str]=mapped_column(String(200)); steps:Mapped[dict]=mapped_column(JSON, default=dict); confidence:Mapped[float]=mapped_column(Float, default=0.5)
+
+class User(Base):
+    __tablename__='users'; id:Mapped[int]=mapped_column(Integer, primary_key=True); workspace_id:Mapped[int]=mapped_column(Integer, default=0); email:Mapped[str]=mapped_column(String(240)); role:Mapped[str]=mapped_column(String(40), default='analyst')
+class ScopeRule(Base):
+    __tablename__='scope_rules'; id:Mapped[int]=mapped_column(Integer, primary_key=True); workspace_id:Mapped[int]=mapped_column(Integer); include_pattern:Mapped[str]=mapped_column(String(500)); exclude_pattern:Mapped[str]=mapped_column(String(500), default=''); test_level:Mapped[str]=mapped_column(String(40), default='passive_only')
+class ScannerTask(Base):
+    __tablename__='scanner_tasks'; id:Mapped[int]=mapped_column(Integer, primary_key=True); run_id:Mapped[int]=mapped_column(Integer); module:Mapped[str]=mapped_column(String(120)); target:Mapped[str]=mapped_column(String(1000)); status:Mapped[str]=mapped_column(String(40), default='queued'); summary:Mapped[str]=mapped_column(Text, default=''); error:Mapped[str]=mapped_column(Text, default=''); started_at:Mapped[datetime]=mapped_column(DateTime, default=datetime.utcnow); completed_at:Mapped[datetime]=mapped_column(DateTime, nullable=True)
+class CostEvent(Base):
+    __tablename__='cost_events'; id:Mapped[int]=mapped_column(Integer, primary_key=True); run_id:Mapped[int]=mapped_column(Integer); provider:Mapped[str]=mapped_column(String(60)); operation:Mapped[str]=mapped_column(String(120)); estimated_tokens:Mapped[int]=mapped_column(Integer, default=0); estimated_usd:Mapped[float]=mapped_column(Float, default=0); detail:Mapped[dict]=mapped_column(JSON, default=dict); created_at:Mapped[datetime]=mapped_column(DateTime, default=datetime.utcnow)
+class ReportVersion(Base):
+    __tablename__='report_versions'; id:Mapped[int]=mapped_column(Integer, primary_key=True); run_id:Mapped[int]=mapped_column(Integer); status:Mapped[str]=mapped_column(String(40), default='draft'); content:Mapped[dict]=mapped_column(JSON, default=dict); created_at:Mapped[datetime]=mapped_column(DateTime, default=datetime.utcnow)
