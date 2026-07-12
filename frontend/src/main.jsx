@@ -255,6 +255,20 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
       <h4 style={{marginTop:14}}>🤖 Recommended next actions</h4>
       {report.agent_loop.recommended_actions.map((a,i)=><div key={i} className="item"><div className="top"><b>{a.action}</b><span className={'pill '+(a.priority==='High'?'bad':a.priority==='Medium'?'warn':'mut')}>{a.priority}</span></div><span className="sub">{a.why}</span></div>)}
     </div>}
+    {report.reporter&&<div className="panel" style={{marginTop:16}}>
+      <h3><FileText size={16}/> Reporter sub-agent <span className={'pill '+(report.reporter.llm_backed?'ok':'mut')}>{report.reporter.llm_backed?`LLM · ${report.reporter.source}`:'deterministic'}</span></h3>
+      <p style={{marginTop:8,lineHeight:1.6}}>{report.reporter.assessment}</p>
+    </div>}
+    {report.memory?.long_term&&<div className="panel" style={{marginTop:16,border:'1px solid #d9a441',background:'linear-gradient(180deg,rgba(217,164,65,0.08),transparent)'}}>
+      <h3><Brain size={16}/> Agent memory <span className="pill mut">accumulating</span></h3>
+      <div className="grid" style={{marginTop:8}}>
+        <div className="card"><div className="ic"><CalendarClock size={18}/></div><h3>Scans remembered</h3><b>{report.memory.long_term.scans}</b><p>trend: {report.memory.long_term.trend||'stable'}</p></div>
+        <div className="card"><div className="ic"><Activity size={18}/></div><h3>Score history</h3><b>{(report.memory.long_term.score_history||[]).join(' → ')}</b><p>best {report.memory.long_term.best_score} · worst {report.memory.long_term.worst_score}</p></div>
+        <div className="card"><div className="ic"><ListChecks size={18}/></div><h3>Recurring issues</h3><b>{(report.memory.long_term.top_recurring||[]).length}</b><p>tracked across scans</p></div>
+      </div>
+      {(report.memory.long_term.top_recurring||[]).length>0&&<div style={{marginTop:10}}><h4>Recurring findings (long-term memory)</h4>{report.memory.long_term.top_recurring.map((r,i)=><div key={i} className="log">{r[0]} · seen <b>{r[1]}×</b></div>)}</div>}
+      {report.memory.short_term?.length>0&&<div style={{marginTop:10}}><h4>Short-term memory (recent scans)</h4>{report.memory.short_term.slice(0,5).map((s,i)=><div key={i} className="log">#{s.run_id} · {s.tier} · score {s.score} · {s.findings_total} findings</div>)}</div>}
+    </div>}
     {report.detailed_depth&&(()=>{const paid=report.scan_tier==='detailed';const accent=paid?'#7c5cff':'#2f81f7';return <div className="panel" style={{marginTop:16,border:`1px solid ${accent}`,background:`linear-gradient(180deg,${paid?'rgba(124,92,255,0.10)':'rgba(47,129,247,0.10)'},transparent)`}}>
       <h3><ShieldCheck size={16}/> {paid?'Vanguard Detailed Depth':'Security Depth Analysis'} <span className={'pill '+(paid?'info':'ok')}>{paid?'PAID · AI':'FREE'}</span></h3>
       <div className="grid" style={{marginTop:8}}>

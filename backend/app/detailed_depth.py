@@ -68,21 +68,13 @@ def _ai_narrative(target, findings, breakdown) -> dict:
         'then close configuration and privacy gaps. No destructive testing was performed.'
     )
     try:
-        from .intelligence_settings import get_mode, current_entry
-        from .config import settings
         from . import llm
-        mode = get_mode(); entry = current_entry()
-        # Detailed tier: if the selector is on deterministic but a key exists, still use AI for the narrative.
-        if entry.get('provider') not in ('gemini', 'openai'):
-            if settings.gemini_key_present:
-                entry = {'provider': 'gemini', 'model': settings.gemini_model}; mode = 'gemini'
-            elif settings.openai_key_present:
-                entry = {'provider': 'openai', 'model': settings.openai_model}; mode = 'openai'
-        if entry.get('provider') in ('gemini', 'openai'):
-            prompt = ('You are a senior application security consultant writing the executive summary of a paid '
-                      f'security assessment for {target}. In 4-6 sentences, explain the business risk and the top '
-                      f'remediation priorities based on these findings: {top}. Risk band: {breakdown["risk_band"]}. '
-                      'Be concrete and non-alarmist. Do not invent findings.')
+        from .agents import _provider_chain
+        prompt = ('You are a senior application security consultant writing the executive summary of a paid '
+                  f'security assessment for {target}. In 4-6 sentences, explain the business risk and the top '
+                  f'remediation priorities based on these findings: {top}. Risk band: {breakdown["risk_band"]}. '
+                  'Be concrete and non-alarmist. Do not invent findings.')
+        for mode, entry in _provider_chain():
             live = llm.live_intelligence(prompt, mode, entry)
             if live and live.get('summary'):
                 return {'narrative': live['summary'], 'source': f'ai:{entry.get("provider")}'}

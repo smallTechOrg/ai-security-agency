@@ -45,3 +45,6 @@ class BillingSubscription(Base):
 
 class AccessKey(Base):
     __tablename__='access_keys'; id:Mapped[int]=mapped_column(Integer, primary_key=True); key:Mapped[str]=mapped_column(String(64), unique=True); plan:Mapped[str]=mapped_column(String(40), default='vanguard'); status:Mapped[str]=mapped_column(String(20), default='pending'); paid_via:Mapped[str]=mapped_column(String(20), default='upi'); workspace_id:Mapped[int]=mapped_column(Integer, default=0); activated_by:Mapped[str]=mapped_column(String(120), default=''); created_at:Mapped[datetime]=mapped_column(DateTime, default=datetime.utcnow); activated_at:Mapped[datetime]=mapped_column(DateTime, nullable=True)
+
+class AgentMemory(Base):
+    __tablename__='agent_memory'; id:Mapped[int]=mapped_column(Integer, primary_key=True); workspace_id:Mapped[int]=mapped_column(Integer, default=0, index=True); asset_id:Mapped[int]=mapped_column(Integer, default=0, index=True); scope:Mapped[str]=mapped_column(String(20), default='short'); run_id:Mapped[int]=mapped_column(Integer, default=0); title:Mapped[str]=mapped_column(String(300), default=''); content:Mapped[dict]=mapped_column(JSON, default=dict); created_at:Mapped[datetime]=mapped_column(DateTime, default=datetime.utcnow); updated_at:Mapped[datetime]=mapped_column(DateTime, default=datetime.utcnow)

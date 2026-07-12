@@ -132,6 +132,11 @@ def tasks(run_id:int, db:Session=Depends(get_db)):
     costs=db.query(models.CostEvent).filter_by(run_id=run_id).order_by(models.CostEvent.id).all()
     reports=db.query(models.ReportVersion).filter_by(run_id=run_id).order_by(models.ReportVersion.id.desc()).all()
     return {'tasks':[{'module':t.module,'target':t.target,'status':t.status,'summary':t.summary,'error':t.error} for t in rows], 'costs':[{'provider':c.provider,'operation':c.operation,'estimated_usd':c.estimated_usd,'estimated_tokens':c.estimated_tokens,'detail':c.detail} for c in costs], 'report_versions':[{'id':r.id,'status':r.status,'created_at':r.created_at.isoformat()} for r in reports]}
+@app.get('/api/workspaces/{workspace_id}/memory')
+def workspace_memory(workspace_id:int, db:Session=Depends(get_db)):
+    from . import memory
+    return memory.workspace_memory(db, workspace_id)
+
 @app.get('/api/policy')
 def policy():
     return {'phase':'enterprise-safe-first','allowed':['free high-level authorized public http/https posture checks','paid detailed scans after payment and admin domain approval','same-origin crawl','headers/TLS/forms/common public files','evidence-backed reporting'], 'blocked':['private/internal targets','destructive exploits','credential attacks','brute force','DoS/rate abuse','data exfiltration'], 'requires_approval':['paid detailed scans','domain ownership approval','authenticated testing','safe active probes','client-visible certificate']}
