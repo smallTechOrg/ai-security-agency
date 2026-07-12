@@ -33,6 +33,7 @@ function App(){
       const iv=await api(`/api/runs/${id}/intervention`).catch(()=>null);
       if(iv&&iv.needed){setIntervention({...iv,run_id:id,workspace_id:j.workspace_id});setBusy(false);return;}
       try{await api(`/api/runs/${id}/active-probe`,{method:'POST'});}catch(e){/* active probe optional; authorized domains only */}
+      try{await api(`/api/runs/${id}/api-probe`,{method:'POST'});}catch(e){/* API probe optional */}
       await api(`/api/workspaces/${j.workspace_id}/enterprise-program`,{method:'POST'}).catch(()=>{});
       await load();
       await openRun({run_id:id,workspace_id:j.workspace_id,status:'completed'});
@@ -264,6 +265,11 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
     {report.active_probe&&<div className="panel" style={{marginTop:16,border:'1px solid #ff5c7c',background:'linear-gradient(180deg,rgba(255,92,124,0.09),transparent)'}}>
       <h3><ScanLine size={16}/> Penetration test — active probes <span className="pill bad">{report.active_probe.findings} issues</span><span className="pill mut">{report.active_probe.checks_run} checks · non-destructive</span></h3>
       <div style={{marginTop:8}}>{(report.active_probe.checks||[]).map((c,i)=><div key={i} className="item" style={{borderLeft:'2px solid '+(c.issue_found?'#ff5c7c':'#36d399')}}><div className="top"><b>{c.issue_found?'⚠️':'✓'} {c.check}</b><span className={'pill '+(c.issue_found?'bad':'ok')}>{c.issue_found?c.severity:'pass'}</span></div>{c.title&&<span className="sub">{c.title}</span>}</div>)}</div>
+    </div>}
+    {report.api_security&&<div className="panel" style={{marginTop:16,border:'1px solid #d9a441'}}>
+      <h3><Code2 size={16}/> API security test <span className={'pill '+(report.api_security.issues>0?'bad':'ok')}>{report.api_security.issues} issues</span><span className="pill mut">{report.api_security.endpoints_tested} endpoints</span></h3>
+      {report.api_security.endpoints_tested===0&&<p className="sub">No API/XHR calls were observed on this page during browser recon.</p>}
+      {(report.api_security.endpoints||[]).map((e,i)=><div key={i} className="item" style={{borderLeft:'2px solid '+(e.issue_count>0?'#ff5c7c':'#36d399')}}><div className="top"><b>{e.issue_count>0?'⚠️':'✓'} {e.method} {(()=>{try{return new URL(e.url).pathname}catch{return e.url}})()}</b><span className={'pill '+(e.issue_count>0?'bad':'ok')}>{e.issue_count>0?e.issue_count+' issue'+(e.issue_count>1?'s':''):'ok'}</span></div></div>)}
     </div>}
     {report.redteam&&<div className="panel" style={{marginTop:16,border:'1px solid #ff5c7c'}}>
       <h3><AlertTriangle size={16}/> Red Team agent — attack chain <span className={'pill '+(report.redteam.llm_backed?'bad':'mut')}>{report.redteam.llm_backed?`LLM · ${report.redteam.source}`:'deterministic'}</span></h3>

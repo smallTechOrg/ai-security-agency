@@ -316,6 +316,15 @@ def run_screenshot(run_id:int, db:Session=Depends(get_db)):
     if not shot.is_file(): raise HTTPException(404,'no screenshot captured for this run')
     return FileResponse(str(shot), media_type='image/png')
 
+@app.post('/api/runs/{run_id}/api-probe')
+def api_probe_endpoint(run_id:int, db:Session=Depends(get_db)):
+    run=db.get(models.AuditRun,run_id)
+    if not run: raise HTTPException(404,'run not found')
+    asset=db.get(models.Asset,run.asset_id)
+    if not asset or not asset.authorized: raise HTTPException(403,'domain must be admin-approved for authorized API testing')
+    from . import api_probe
+    return api_probe.run(db, run_id)
+
 @app.get('/api/runs/{run_id}/intervention')
 def intervention_state(run_id:int, db:Session=Depends(get_db)):
     run=db.get(models.AuditRun,run_id)
