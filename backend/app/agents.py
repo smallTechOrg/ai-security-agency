@@ -28,6 +28,47 @@ REPORTER_SYSTEM = (
 )
 
 
+ANALYST_SYSTEM = (
+    "You are the Threat Analyst agent in an authorized web security assessment. Given the findings, "
+    "identify the single most important attack path or risk to address first and explain the likely "
+    "exploitation scenario and impact in 3-4 sentences. Be concrete about the chain of events. "
+    "Do NOT invent findings beyond those provided. No markdown, plain prose."
+)
+
+
+def analyst_agent(target, findings, app_model, db=None, run_id=None) -> dict:
+    """Second LLM-backed sub-agent: threat prioritization / attack-path reasoning."""
+    sectors = ', '.join((app_model or {}).get('likely_sectors', []) or ['general website'])
+    finding_lines = '; '.join(f'{f.severity}: {f.title}' for f in findings[:12]) or 'no findings'
+    deterministic = (
+        f'The highest-priority path on {target} is chaining missing transport/security headers with weak '
+        'cookie flags: without HSTS/CSP and with non-hardened session cookies, an on-path or XSS foothold can '
+        'lead to session theft and account takeover. Address header hardening and cookie flags first to break '
+        'that chain; third-party exposure is a secondary privacy concern.'
+    )
+    try:
+        prompt = (f'{ANALYST_SYSTEM}\n\nTarget: {target}\nBusiness type: {sectors}\n'
+                  f'Findings: {finding_lines}\n\nGive your threat-prioritization analysis now.')
+        chain = _provider_chain()
+        out = entry = None
+        if db is not None:
+            from . import observability
+            out, entry = observability.call_with_trace(db, run_id, 'Analyst', prompt, chain)
+        else:
+            from . import llm
+            for m, e in chain:
+                r = llm.live_intelligence(prompt, m, e)
+                if r and r.get('summary'):
+                    out, entry = r, e; break
+        if out and out.get('summary'):
+            return {'agent': 'Analyst', 'llm_backed': True, 'source': f'ai:{entry.get("provider")}',
+                    'model': entry.get('model'), 'reasoning': out['summary'].strip()}
+    except Exception:
+        pass
+    return {'agent': 'Analyst', 'llm_backed': False, 'source': 'deterministic', 'model': None,
+            'reasoning': deterministic}
+
+
 def reporter_agent(target, findings, app_model, db=None, run_id=None) -> dict:
     """LLM-backed Reporter sub-agent → business-impact assessment. Deterministic fallback on any failure."""
     am = app_model or {}

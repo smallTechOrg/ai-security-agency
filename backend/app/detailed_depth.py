@@ -125,7 +125,13 @@ def run_agent_loop(target, app_model, findings, browser, max_iters=12) -> dict:
         # ACT + OBSERVE
         trace.append({'iter': iters + 1, 'agent': agent, 'decision': decision, 'detail': observe()})
         done.add(key); iters += 1
-    return {'iterations': iters, 'stop_reason': stop_reason, 'trace': trace,
+    # Agents that never ran this scan (their trigger condition wasn't met) — shown greyed out.
+    ran_agents = {t['agent'] for t in trace}
+    seen = set(); skipped = []
+    for c in catalog:
+        if c[0] not in done and c[2] not in ran_agents and c[2] not in seen:
+            seen.add(c[2]); skipped.append({'agent': c[2], 'decision': c[3], 'reason': 'trigger condition not met on this target'})
+    return {'iterations': iters, 'stop_reason': stop_reason, 'trace': trace, 'skipped': skipped,
             'recommended_actions': recommended_actions(findings, app_model, browser)}
 
 

@@ -123,6 +123,26 @@ def build_report(db:Session, run_id:int)->dict:
         db.add(models.Evidence(run_id=run_id,kind='reporter-agent',title='Reporter sub-agent assessment',data=reporter)); db.commit()
     else:
         reporter=reporter_ev.data if reporter_ev else None
+    # Second LLM sub-agent: Threat Analyst (cached).
+    analyst_ev=next((e for e in evidence if e.kind=='analyst-agent'),None)
+    if analyst_ev is None and findings:
+        from . import agents as _ag2
+        analyst=_ag2.analyst_agent(asset.url,findings,run.app_model,db=db,run_id=run_id)
+        db.add(models.Evidence(run_id=run_id,kind='analyst-agent',title='Threat Analyst sub-agent',data=analyst)); db.commit()
+    else:
+        analyst=analyst_ev.data if analyst_ev else None
+    # Make the reasoning loop genuinely multi-agent: splice the real LLM agents into the trace.
+    if reporter:
+        for _t in agent_loop['trace']:
+            if _t['agent']=='Reporter':
+                _t['llm_backed']=reporter.get('llm_backed'); _t['llm_source']=reporter.get('source'); _t['output']=(reporter.get('assessment') or '')[:220]
+    if analyst:
+        _idx=next((i for i,_t in enumerate(agent_loop['trace']) if _t['agent']=='Reporter'), len(agent_loop['trace']))
+        agent_loop['trace'].insert(_idx, {'agent':'Analyst','decision':'Prioritized the top attack path (LLM)','detail':(analyst.get('reasoning') or '')[:220],'llm_backed':analyst.get('llm_backed'),'llm_source':analyst.get('source')})
+        for _i,_t in enumerate(agent_loop['trace']): _t['iter']=_i+1
+        agent_loop['iterations']=len(agent_loop['trace'])
+    agent_loop['llm_agents']=sum(1 for a in (analyst,reporter) if a and a.get('llm_backed'))
+    agent_loop['multi_agent']=agent_loop['llm_agents']>=2
     # Accumulating agent memory (short + long term).
     from . import memory as _mem
     _mem.record_for_run(db,run,asset,findings)
@@ -130,4 +150,4 @@ def build_report(db:Session, run_id:int)->dict:
     from . import observability as _obs
     observability=_obs.for_run(db,run_id)
     exec_summary=(detailed_depth.get('executive_narrative') if detailed_depth else None) or f'Safe baseline audit completed for {asset.url}. {len(findings)} findings require reviewer validation before client delivery.'
-    return {'run_id':run_id,'target':asset.url,'status':run.status,'scan_tier':tier,'security_score':score,'certificate_status':'review-required' if findings else 'baseline-pass-review-required','executive_summary':exec_summary,'app_model':run.app_model,'browser':browser,'detailed_depth':detailed_depth,'agent_loop':agent_loop,'reporter':reporter,'memory':memory,'observability':observability,'findings':[{'severity':f.severity,'title':f.title,'description':f.description,'evidence':f.evidence,'remediation':f.remediation,'compliance':f.compliance} for f in findings],'evidence_count':len(evidence),'cost_estimate_usd':run.cost_estimate_usd,'next_steps':['Reviewer validates findings','Approve authenticated/deeper testing if in scope','Retest after remediation']}
+    return {'run_id':run_id,'target':asset.url,'status':run.status,'scan_tier':tier,'security_score':score,'certificate_status':'review-required' if findings else 'baseline-pass-review-required','executive_summary':exec_summary,'app_model':run.app_model,'browser':browser,'detailed_depth':detailed_depth,'agent_loop':agent_loop,'reporter':reporter,'analyst':analyst,'memory':memory,'observability':observability,'findings':[{'severity':f.severity,'title':f.title,'description':f.description,'evidence':f.evidence,'remediation':f.remediation,'compliance':f.compliance} for f in findings],'evidence_count':len(evidence),'cost_estimate_usd':run.cost_estimate_usd,'next_steps':['Reviewer validates findings','Approve authenticated/deeper testing if in scope','Retest after remediation']}
