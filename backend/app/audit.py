@@ -58,6 +58,8 @@ def run_safe_baseline(db:Session, run_id:int):
             href=urljoin(asset.url, a.get('href'))
             if urlparse(href).netloc==parsed.netloc and href not in links: links.append(href)
         pages=[asset.url]+links[:12]
+        script_urls=[urljoin(asset.url,s.get('src')) for s in soup.select('script[src]')[:40]]
+        page_html=resp.text
         for form in soup.select('form')[:20]:
             inputs=[i.get('name') or i.get('type') or 'unnamed' for i in form.select('input,textarea,select')]
             forms.append({'action':urljoin(asset.url, form.get('action') or ''), 'method':(form.get('method') or 'GET').upper(), 'inputs':inputs})
@@ -77,6 +79,12 @@ def run_safe_baseline(db:Session, run_id:int):
     for item in exposed:
         if item.get('path') in ['/.env','/.git/config','/backup.zip'] and item.get('status')==200:
             create_finding(db, run.id, 'Critical', f'Potentially exposed sensitive file {item["path"]}', 'A sensitive path returned HTTP 200 during a safe GET check. Contents were not exfiltrated.', str(item), 'Remove the file from web root and add server deny rules.', {'OWASP':'A01 Broken Access Control'})
+    from . import fingerprint as _fp
+    fp=_fp.fingerprint(headers, page_html, script_urls)
+    for sev,ftitle,fdesc,fev,frem,fcomp in fp['findings']:
+        create_finding(db, run.id, sev, ftitle, fdesc, fev, frem, fcomp)
+    db.add(models.Evidence(run_id=run.id, kind='tech-fingerprint', title='Technology & dependency fingerprint', data=fp['tech']))
+    task(db,run.id,'tech_dependency_fingerprint',origin,status='completed',summary=f"Fingerprinted stack; {len(fp['libraries'])} client libraries, {len(fp['findings'])} tech-risk findings")
     existing=dict(run.app_model or {})
     tier=existing.get('scan_tier','free')
     app_model=classify_business(title,text,forms); app_model.update(existing); app_model.update({'pages_seen':len(pages),'forms_seen':len(forms),'tech_hints':{'server':headers.get('server','unknown'),'powered_by':headers.get('x-powered-by','')}})

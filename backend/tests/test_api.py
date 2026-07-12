@@ -151,6 +151,17 @@ def test_upi_access_key_flow():
     rev=client.post(f'/api/admin/access-key/{key}/revoke'); assert rev.status_code==200; assert rev.json()['status']=='revoked'
 
 
+def test_fingerprint_flags_vulnerable_and_ignores_modern():
+    from app import fingerprint as fp
+    r=fp.fingerprint({'Server':'Apache/2.2.15','X-Powered-By':'PHP/5.6.40'},'<html></html>',
+                     ['https://cdn/jquery-1.7.2.min.js','https://cdn/lodash-4.17.10.js'])
+    titles=' '.join(f[1] for f in r['findings'])
+    assert 'jquery' in titles.lower(); assert 'CVE-2019-10744' in titles  # lodash proto pollution
+    assert 'PHP' in titles; assert 'version disclosure' in titles.lower()
+    clean=fp.fingerprint({'Server':'nginx'},'',['https://cdn/jquery-3.6.0.min.js','https://cdn/bootstrap-5.2.0.js'])
+    assert clean['findings']==[]  # no false positives on a current stack
+    assert clean['libraries']['jquery']=='3.6.0'
+
 def test_repo_analyzer_deterministic_and_cost_free():
     import tempfile, os
     tmp=tempfile.mkdtemp(prefix='zer0_repotest_')
