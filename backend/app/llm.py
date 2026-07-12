@@ -49,7 +49,7 @@ def live_intelligence(prompt: str, mode: str, entry: dict) -> dict | None:
             resp = httpx.post(
                 url,
                 headers={'Authorization': f'Bearer {settings.agent_openai_api_key or settings.openai_api_key}', 'Content-Type': 'application/json'},
-                json={'model': entry['model'], 'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 800},
+                json={'model': entry['model'], 'messages': [{'role': 'user', 'content': prompt}], 'max_completion_tokens': 800},
                 timeout=30,
             )
             data = resp.json()
