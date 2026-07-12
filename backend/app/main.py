@@ -256,6 +256,21 @@ def report_intelligence(run_id:int, db:Session=Depends(get_db)):
     if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
     report=audit.build_report(db,run_id)
     return llm.generate_report_intelligence(db,run_id,report)
+
+@app.get('/api/intelligence/models')
+def intelligence_models():
+    from .intelligence_settings import AVAILABLE, get_mode
+    return {'models':AVAILABLE,'current':get_mode()}
+
+@app.post('/api/intelligence/models')
+def set_intelligence_mode(req:schemas.IntelligenceModeRequest, db:Session=Depends(get_db)):
+    from .intelligence_settings import set_mode, current_entry
+    try:
+        entry=set_mode(req.mode)
+    except ValueError as e:
+        raise HTTPException(400,str(e))
+    audit.log(db,0,0,'intelligence.mode.set',{'mode':req.mode,'provider':entry['provider'],'model':entry['model']},actor='operator')
+    return {'current':req.mode,'entry':entry}
 @app.get('/api/admin/domain-queue')
 def domain_queue(db:Session=Depends(get_db)):
     approvals=db.query(models.Approval).order_by(models.Approval.id.desc()).limit(50).all()

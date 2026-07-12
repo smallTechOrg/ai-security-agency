@@ -18,3 +18,5 @@ class UserUpsertRequest(BaseModel):
     workspace_id:int=0; email:str; role:str='analyst'
 class BillingWebhookRequest(BaseModel):
     workspace_id:int; event:str='checkout.session.completed'; plan:str='vanguard'; payment_reference:str=''
+class IntelligenceModeRequest(BaseModel):
+    mode:str='deterministic'

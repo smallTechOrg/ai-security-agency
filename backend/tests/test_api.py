@@ -131,7 +131,12 @@ def test_billing_webhook_activates_subscription():
     status=client.get('/api/billing/status/777'); assert status.json()['subscription']['plan']=='vanguard'
     logs=client.get('/api/admin/audit-log'); assert any(e['action']=='billing.webhook.received' for e in logs.json()['events'])
 
-def test_workspace_cost_governor_blocks_over_budget_execution():
+def test_intelligence_model_selector_endpoints():
+    lst=client.get('/api/intelligence/models'); assert lst.status_code==200; assert any(m['id']=='gemini' for m in lst.json()['models'])
+    setm=client.post('/api/intelligence/models', json={'mode':'gemini'}); assert setm.status_code==200; assert setm.json()['current']=='gemini'
+    bad=client.post('/api/intelligence/models', json={'mode':'nope'}); assert bad.status_code==400
+    client.post('/api/intelligence/models', json={'mode':'deterministic'})
+
     r=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'CG','workspace_name':'CG','scan_tier':'free','budget_usd':0.01}); run=r.json(); rid=run['run_id']; wid=run['workspace_id']
     client.post(f'/api/admin/domain-queue/{rid}/approve', json={'decided_by':'admin','reason':'owner verified'})
     gov=client.get(f'/api/workspaces/{wid}/cost-governor?run_id={rid}'); assert gov.status_code==200; body=gov.json(); assert body['allowed'] is False; assert body['projected_run_cost_usd'] >= 0.04
