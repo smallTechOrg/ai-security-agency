@@ -69,6 +69,47 @@ def analyst_agent(target, findings, app_model, db=None, run_id=None) -> dict:
             'reasoning': deterministic}
 
 
+REMEDIATION_SYSTEM = (
+    "You are the Remediation Engineer agent. For the given findings, provide concrete, copy-paste "
+    "remediation for the top 3-4 issues: exact HTTP response headers, cookie attributes, or config "
+    "directives (nginx/Apache/express as appropriate). Keep it tight and actionable. "
+    "Do NOT invent findings. Use short labelled snippets, one per issue."
+)
+
+
+def remediation_agent(target, findings, app_model, db=None, run_id=None) -> dict:
+    """Third LLM-backed sub-agent: concrete remediation snippets for the findings."""
+    finding_lines = '; '.join(f'{f.severity}: {f.title}' for f in findings[:12]) or 'no findings'
+    deterministic = (
+        'Add security headers (nginx): '
+        'add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always; '
+        'add_header Content-Security-Policy "default-src \'self\'" always; '
+        'add_header X-Frame-Options DENY always; add_header X-Content-Type-Options nosniff always. '
+        'Harden cookies: Set-Cookie: <name>=<v>; Secure; HttpOnly; SameSite=Lax.'
+    )
+    try:
+        prompt = (f'{REMEDIATION_SYSTEM}\n\nTarget: {target}\nFindings: {finding_lines}\n\n'
+                  'Write the remediation snippets now.')
+        chain = _provider_chain()
+        out = entry = None
+        if db is not None:
+            from . import observability
+            out, entry = observability.call_with_trace(db, run_id, 'Remediation', prompt, chain)
+        else:
+            from . import llm
+            for m, e in chain:
+                r = llm.live_intelligence(prompt, m, e)
+                if r and r.get('summary'):
+                    out, entry = r, e; break
+        if out and out.get('summary'):
+            return {'agent': 'Remediation', 'llm_backed': True, 'source': f'ai:{entry.get("provider")}',
+                    'model': entry.get('model'), 'fixes': out['summary'].strip()}
+    except Exception:
+        pass
+    return {'agent': 'Remediation', 'llm_backed': False, 'source': 'deterministic', 'model': None,
+            'fixes': deterministic}
+
+
 def reporter_agent(target, findings, app_model, db=None, run_id=None) -> dict:
     """LLM-backed Reporter sub-agent → business-impact assessment. Deterministic fallback on any failure."""
     am = app_model or {}

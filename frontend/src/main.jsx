@@ -260,6 +260,10 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
       <h3><FileText size={16}/> Reporter sub-agent <span className={'pill '+(report.reporter.llm_backed?'ok':'mut')}>{report.reporter.llm_backed?`LLM · ${report.reporter.source}`:'deterministic'}</span></h3>
       <p style={{marginTop:8,lineHeight:1.6}}>{report.reporter.assessment}</p>
     </div>}
+    {report.remediation&&<div className="panel" style={{marginTop:16}}>
+      <h3><Wrench size={16}/> Remediation Engineer sub-agent <span className={'pill '+(report.remediation.llm_backed?'ok':'mut')}>{report.remediation.llm_backed?`LLM · ${report.remediation.source}`:'deterministic'}</span></h3>
+      <pre style={{marginTop:8,whiteSpace:'pre-wrap',background:'#0d1b2f',padding:14,borderRadius:12,border:'1px solid #263d5b',lineHeight:1.5}}>{report.remediation.fixes}</pre>
+    </div>}
     {report.observability&&report.observability.llm_calls>0&&<div className="panel" style={{marginTop:16,border:'1px solid #2f81f7',background:'linear-gradient(180deg,rgba(47,129,247,0.08),transparent)'}}>
       <h3><Activity size={16}/> Agent observability <span className="pill info">LLM tracing</span></h3>
       <div className="grid" style={{marginTop:8}}>
