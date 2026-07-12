@@ -6,7 +6,7 @@ setup:
 	cd frontend && npm install
 
 test:
-	.venv/bin/pytest -q
+	PYTHONPATH=backend .venv/bin/pytest -q
 	cd frontend && npm run build
 
 backend:

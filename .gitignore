@@ -1,11 +1,22 @@
-.env
-.venv
-node_modules
-dist
-__pycache__
-.pytest_cache
-data/*.db
-data/*.db-*
-.DS_Store
+# Runtime data (SQLite DB + generated artifacts)
+backend/data/
 
-data/artifacts/
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Node / frontend build
+node_modules/
+frontend/dist/
+
+# Env / secrets
+.env
+*.local
+
+# OS / editor
+.DS_Store
+*.swp

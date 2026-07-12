@@ -77,8 +77,15 @@ def run_safe_baseline(db:Session, run_id:int):
     for item in exposed:
         if item.get('path') in ['/.env','/.git/config','/backup.zip'] and item.get('status')==200:
             create_finding(db, run.id, 'Critical', f'Potentially exposed sensitive file {item["path"]}', 'A sensitive path returned HTTP 200 during a safe GET check. Contents were not exfiltrated.', str(item), 'Remove the file from web root and add server deny rules.', {'OWASP':'A01 Broken Access Control'})
-    app_model=classify_business(title,text,forms); app_model.update({'pages_seen':len(pages),'forms_seen':len(forms),'tech_hints':{'server':headers.get('server','unknown'),'powered_by':headers.get('x-powered-by','')}})
-    cost(db,run.id,'deterministic','safe_baseline',0.04,detail={'pages':len(pages),'forms':len(forms)}); run.app_model=app_model; run.status='completed'; run.stage='report_ready'; run.progress=100; run.cost_estimate_usd=0.04; db.add(models.ReportVersion(run_id=run.id,status='draft',content={'score_pending':True,'app_model':app_model})); db.commit(); log(db, run.workspace_id, run.id, 'run.completed', {'findings':db.query(models.Finding).filter_by(run_id=run.id).count(),'cost_estimate_usd':run.cost_estimate_usd})
+    existing=dict(run.app_model or {})
+    tier=existing.get('scan_tier','free')
+    app_model=classify_business(title,text,forms); app_model.update(existing); app_model.update({'pages_seen':len(pages),'forms_seen':len(forms),'tech_hints':{'server':headers.get('server','unknown'),'powered_by':headers.get('x-powered-by','')}})
+    scan_cost=49.0 if tier=='detailed' else 0.04
+    if tier=='detailed':
+        task(db,run.id,'paid_detailed_vanguard_review',origin,status='completed',summary='Detailed paid review pack staged: extended evidence, executive risk narrative, remediation program, and retest plan')
+        db.add(models.Evidence(run_id=run.id, kind='vanguard-paid-depth', title='Paid detailed scan entitlement', data={'tier':'detailed','payment_status':app_model.get('payment_status'),'included':['extended evidence review','executive risk narrative','remediation roadmap','retest planning']}))
+        app_model['paid_entitlements']=['extended evidence review','executive risk narrative','remediation roadmap','retest planning']
+    cost(db,run.id,'deterministic','safe_baseline' if tier!='detailed' else 'paid_detailed_vanguard_scan',scan_cost,detail={'pages':len(pages),'forms':len(forms),'tier':tier}); run.app_model=app_model; run.status='completed'; run.stage='report_ready'; run.progress=100; run.cost_estimate_usd=scan_cost; db.add(models.ReportVersion(run_id=run.id,status='draft',content={'score_pending':True,'app_model':app_model})); db.commit(); log(db, run.workspace_id, run.id, 'run.completed', {'findings':db.query(models.Finding).filter_by(run_id=run.id).count(),'cost_estimate_usd':run.cost_estimate_usd,'scan_tier':tier})
     return run
 def build_report(db:Session, run_id:int)->dict:
     run=db.get(models.AuditRun, run_id); asset=db.get(models.Asset, run.asset_id); findings=db.query(models.Finding).filter_by(run_id=run_id).all(); evidence=db.query(models.Evidence).filter_by(run_id=run_id).all()
