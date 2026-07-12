@@ -249,8 +249,8 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
     <div className="score">Security score <b>{report.security_score}</b>/100 · {report.certificate_status}</div>
     <p>{report.executive_summary}</p>
     {costGov&&<div className="hint">Cost governor: {costGov.allowed?'within budget':'over budget'} · remaining ${costGov.remaining_usd} · projected ${costGov.projected_run_cost_usd}</div>}
-    {report.detailed_depth&&<div className="panel" style={{marginTop:16,border:'1px solid #7c5cff',background:'linear-gradient(180deg,rgba(124,92,255,0.10),transparent)'}}>
-      <h3><ShieldCheck size={16}/> Vanguard Detailed Depth <span className="pill info">PAID TIER</span></h3>
+    {report.detailed_depth&&(()=>{const paid=report.scan_tier==='detailed';const accent=paid?'#7c5cff':'#2f81f7';return <div className="panel" style={{marginTop:16,border:`1px solid ${accent}`,background:`linear-gradient(180deg,${paid?'rgba(124,92,255,0.10)':'rgba(47,129,247,0.10)'},transparent)`}}>
+      <h3><ShieldCheck size={16}/> {paid?'Vanguard Detailed Depth':'Security Depth Analysis'} <span className={'pill '+(paid?'info':'ok')}>{paid?'PAID · AI':'FREE'}</span></h3>
       <div className="grid" style={{marginTop:8}}>
         <div className={'card '+((report.detailed_depth.risk_breakdown.risk_band==='Critical'||report.detailed_depth.risk_breakdown.risk_band==='High')?'alert':'good')}><div className="ic"><AlertTriangle size={18}/></div><h3>Risk band</h3><b>{report.detailed_depth.risk_breakdown.risk_band}</b><p>weighted risk {report.detailed_depth.risk_breakdown.weighted_risk}</p></div>
         <div className="card"><div className="ic"><ListChecks size={18}/></div><h3>Findings</h3><b>{report.detailed_depth.risk_breakdown.total}</b><p>{Object.entries(report.detailed_depth.risk_breakdown.by_severity||{}).map(([k,v])=>`${v} ${k}`).join(' · ')||'none'}</p></div>
@@ -263,7 +263,7 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
         <div><h4>OWASP coverage</h4>{report.detailed_depth.owasp_coverage.map((o,i)=><div key={i} className="log">{o.category} · <b>{o.findings}</b></div>)}</div>
         <div><h4>Compliance posture</h4>{report.detailed_depth.compliance_posture.map((c,i)=><div key={i} className="log">{c.attention?'⚠️':'✓'} {c.control}</div>)}</div>
       </div>
-    </div>}
+    </div>;})()}
     {report.browser&&<div className="panel" style={{marginTop:16}}>
       <h3><ScanLine size={16}/> Browser-assisted recon <span className="count">{report.browser.engine}</span></h3>
       <div className="grid" style={{marginTop:8}}>
@@ -271,7 +271,6 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
         <div className="card"><div className="ic"><Code2 size={18}/></div><h3>Rendered surface</h3><b>{report.browser.spa_gap?.rendered_forms??0}f / {report.browser.spa_gap?.rendered_links??0}l</b><p>HTTP saw {report.browser.spa_gap?.raw_forms??0}f / {report.browser.spa_gap?.raw_links??0}l</p></div>
         <div className="card"><div className="ic"><LockKeyhole size={18}/></div><h3>Cookies observed</h3><b>{report.browser.cookies_observed}</b><p>{report.browser.human_takeover?'Human takeover flagged':'Post-JS cookie jar'}</p></div>
       </div>
-      {report.browser.screenshot_available&&<div style={{marginTop:12}}><img src={`${API}${report.browser.screenshot_url}`} alt="Rendered homepage evidence" style={{maxWidth:'100%',borderRadius:12,border:'1px solid #263d5b'}}/></div>}
     </div>}
     <h3>Findings</h3>
     {report.findings.length===0&&<div className="empty">No findings recorded — baseline pass, pending reviewer sign-off.</div>}
@@ -280,6 +279,11 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
       <div><h3>AI report intelligence</h3><pre>{JSON.stringify(intel,null,2)}</pre><h3>Enterprise scaffold</h3><pre>{JSON.stringify(enterprise,null,2)}</pre></div>
       <div><h3>Agent tasks</h3>{tasks?.tasks?.map((t,i)=><div className="log" key={i}>{t.status} · {t.module} · {t.summary}</div>)}<h3>Cost events</h3>{tasks?.costs?.map((c,i)=><div className="log" key={i}>${c.estimated_usd} · {c.provider} · {c.operation}</div>)}<h3>Evidence timeline</h3>{timeline?.logs?.map((l,i)=><div className="log" key={i}>{l.created_at} · {l.actor} · {l.action}</div>)}</div>
     </div>
+    {report.browser?.screenshot_available&&<div className="panel" style={{marginTop:16}}>
+      <h3><ScanLine size={16}/> Rendered page evidence <span className="count">full-page capture</span></h3>
+      <p className="sub">Real headless-Chromium screenshot captured during browser recon — visual proof of the assessed surface.</p>
+      <div style={{marginTop:12}}><img src={`${API}${report.browser.screenshot_url}`} alt="Rendered homepage evidence" style={{maxWidth:'100%',borderRadius:12,border:'1px solid #263d5b'}}/></div>
+    </div>}
   </div></div>;
 }
 

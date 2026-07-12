@@ -93,11 +93,13 @@ def run_safe_baseline(db:Session, run_id:int):
         task(db,run.id,'paid_detailed_vanguard_review',origin,status='completed',summary='Detailed paid review pack staged: extended evidence, executive risk narrative, remediation program, and retest plan')
         db.add(models.Evidence(run_id=run.id, kind='vanguard-paid-depth', title='Paid detailed scan entitlement', data={'tier':'detailed','payment_status':app_model.get('payment_status'),'included':['extended evidence review','executive risk narrative','remediation roadmap','retest planning']}))
         app_model['paid_entitlements']=['extended evidence review','executive risk narrative','remediation roadmap','retest planning']
-        from . import detailed_depth as _dd
-        _all_findings=db.query(models.Finding).filter_by(run_id=run.id).all()
-        depth=_dd.build(asset.url,_all_findings)
-        db.add(models.Evidence(run_id=run.id, kind='detailed-depth', title='Vanguard detailed depth analysis', data=depth))
-        cost(db,run.id,depth.get('narrative_source','deterministic'),'detailed_depth_analysis',0.0,detail={'risk_band':depth['risk_breakdown']['risk_band']})
+    # Depth analysis runs for BOTH tiers. Paid tier gets a live AI executive narrative; free gets deterministic.
+    from . import detailed_depth as _dd
+    _all_findings=db.query(models.Finding).filter_by(run_id=run.id).all()
+    depth=_dd.build(asset.url,_all_findings,use_ai=(tier=='detailed'))
+    depth['tier']=tier
+    db.add(models.Evidence(run_id=run.id, kind='detailed-depth', title='Security depth analysis', data=depth))
+    cost(db,run.id,depth.get('narrative_source','deterministic'),'depth_analysis',0.0,detail={'risk_band':depth['risk_breakdown']['risk_band'],'tier':tier})
     cost(db,run.id,'deterministic','safe_baseline' if tier!='detailed' else 'paid_detailed_vanguard_scan',scan_cost,detail={'pages':len(pages),'forms':len(forms),'tier':tier}); run.app_model=app_model; run.status='completed'; run.stage='report_ready'; run.progress=100; run.cost_estimate_usd=scan_cost; db.add(models.ReportVersion(run_id=run.id,status='draft',content={'score_pending':True,'app_model':app_model})); db.commit(); log(db, run.workspace_id, run.id, 'run.completed', {'findings':db.query(models.Finding).filter_by(run_id=run.id).count(),'cost_estimate_usd':run.cost_estimate_usd,'scan_tier':tier})
     return run
 def build_report(db:Session, run_id:int)->dict:

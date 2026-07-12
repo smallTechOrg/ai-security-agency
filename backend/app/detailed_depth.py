@@ -91,10 +91,15 @@ def _ai_narrative(target, findings, breakdown) -> dict:
     return {'narrative': deterministic, 'source': 'deterministic'}
 
 
-def build(target, findings) -> dict:
-    """Assemble the full detailed-depth payload from a run's findings."""
+def build(target, findings, use_ai=True) -> dict:
+    """Assemble the full depth payload from a run's findings. use_ai=False forces deterministic narrative (free tier)."""
     breakdown = risk_breakdown(findings)
-    ai = _ai_narrative(target, findings, breakdown)
+    ai = _ai_narrative(target, findings, breakdown) if use_ai else {
+        'narrative': (f'The assessment of {target} places overall exposure in the "{breakdown["risk_band"]}" band '
+                      f'({breakdown["total"]} findings, weighted risk {breakdown["weighted_risk"]}). Prioritize '
+                      'Critical/High items first, then close configuration and privacy gaps. Upgrade to the detailed '
+                      'tier for an AI-written executive narrative and deeper multi-page analysis.'),
+        'source': 'deterministic'}
     return {
         'tier': 'detailed',
         'risk_breakdown': breakdown,
