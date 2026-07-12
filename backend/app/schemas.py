@@ -38,3 +38,5 @@ class ScopeRuleRequest(BaseModel):
     include_pattern:str='/*'; exclude_pattern:str='/logout,/delete,/billing'; test_level:str='safe_forms_dry_run'
 class AuthenticatedFormTestRequest(BaseModel):
     credential_id:int=0; auth_session_id:int=0; dry_run:bool=True; reviewer:str='reviewer'; reason:str='Authorized authenticated safe-form dry run.'
+class RetestRequest(BaseModel):
+    reviewer:str='analyst'; outcome:str='ready_for_retest'; evidence_note:str='Remediation submitted for validation.'

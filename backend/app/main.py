@@ -249,7 +249,7 @@ def remediation_tickets(db:Session=Depends(get_db)):
     rows=db.query(models.RemediationTicket).order_by(models.RemediationTicket.id.desc()).limit(100).all()
     finding_ids=[r.finding_id for r in rows]
     findings={f.id:f for f in db.query(models.Finding).filter(models.Finding.id.in_(finding_ids)).all()} if finding_ids else {}
-    return {'tickets':[{'id':r.id,'finding_id':r.finding_id,'owner':r.owner,'status':r.status,'title':findings[r.finding_id].title if r.finding_id in findings else '', 'severity':findings[r.finding_id].severity if r.finding_id in findings else '', 'created_at':r.created_at.isoformat()} for r in rows]}
+    return {'tickets':[{'id':r.id,'finding_id':r.finding_id,'owner':r.owner,'status':r.status,'retest_run_id':r.retest_run_id,'title':findings[r.finding_id].title if r.finding_id in findings else '', 'severity':findings[r.finding_id].severity if r.finding_id in findings else '', 'created_at':r.created_at.isoformat()} for r in rows]}
 
 @app.post('/api/remediation-tickets/{ticket_id}/status')
 def remediation_ticket_status(ticket_id:int, req:schemas.TicketStatusRequest, db:Session=Depends(get_db)):
@@ -257,6 +257,28 @@ def remediation_ticket_status(ticket_id:int, req:schemas.TicketStatusRequest, db
     if not ticket: raise HTTPException(404,'ticket not found')
     ticket.status=req.status; db.commit(); audit.log(db,0,0,'remediation.ticket.status',{'ticket_id':ticket.id,'status':ticket.status},actor='analyst')
     return {'ticket':{'id':ticket.id,'finding_id':ticket.finding_id,'owner':ticket.owner,'status':ticket.status}}
+
+@app.post('/api/remediation-tickets/{ticket_id}/retest')
+def remediation_ticket_retest(ticket_id:int, req:schemas.RetestRequest, db:Session=Depends(get_db)):
+    ticket=db.get(models.RemediationTicket,ticket_id)
+    if not ticket: raise HTTPException(404,'ticket not found')
+    finding=db.get(models.Finding,ticket.finding_id)
+    if not finding: raise HTTPException(404,'finding not found')
+    parent=db.get(models.AuditRun,finding.run_id)
+    if not parent: raise HTTPException(404,'source run not found')
+    asset=db.get(models.Asset,parent.asset_id)
+    if not asset or not asset.authorized: raise HTTPException(403,'approved domain required for retest')
+    allowed={'ready_for_retest','passed','failed'}
+    outcome=req.outcome if req.outcome in allowed else 'ready_for_retest'
+    status={'ready_for_retest':'retest_ready','passed':'retest_passed','failed':'retest_failed'}[outcome]
+    retest=models.AuditRun(workspace_id=parent.workspace_id,asset_id=parent.asset_id,status='completed',stage=status,progress=100,cost_estimate_usd=0.0,app_model={'scan_tier':'retest','parent_run_id':parent.id,'finding_id':finding.id,'ticket_id':ticket.id,'outcome':outcome})
+    db.add(retest); db.commit(); db.refresh(retest)
+    audit.task(db,retest.id,'remediation_retest',asset.url,status='completed',summary=f'Retest package created for ticket #{ticket.id}: {finding.title}')
+    db.add(models.Evidence(run_id=retest.id,kind='remediation-retest',title='Remediation retest validation package',data={'ticket_id':ticket.id,'source_run_id':parent.id,'finding':{'id':finding.id,'severity':finding.severity,'title':finding.title,'evidence':finding.evidence,'remediation':finding.remediation},'outcome':outcome,'evidence_note':req.evidence_note,'reviewer':req.reviewer,'non_destructive':True,'requires_manual_validation':outcome=='ready_for_retest'}))
+    audit.cost(db,retest.id,'deterministic','remediation_retest',0.0,detail={'ticket_id':ticket.id,'outcome':outcome})
+    ticket.retest_run_id=retest.id; ticket.status=status
+    db.commit(); audit.log(db,parent.workspace_id,retest.id,'remediation.retest.created',{'ticket_id':ticket.id,'finding_id':finding.id,'outcome':outcome,'source_run_id':parent.id},actor=req.reviewer)
+    return {'ticket':{'id':ticket.id,'finding_id':ticket.finding_id,'owner':ticket.owner,'status':ticket.status,'retest_run_id':ticket.retest_run_id},'retest_run':{'run_id':retest.id,'workspace_id':retest.workspace_id,'asset_id':retest.asset_id,'status':retest.status,'stage':retest.stage,'progress':retest.progress},'outcome':outcome,'non_destructive':True}
 
 @app.get('/api/program/summary')
 def program_summary(db:Session=Depends(get_db)):

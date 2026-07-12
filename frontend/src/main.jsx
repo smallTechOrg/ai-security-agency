@@ -48,6 +48,7 @@ function App(){
   async function revokeDomain(x){setBusy(true);setError('');try{await api(`/api/admin/domains/${x.asset_id}/revoke`,{method:'POST'});await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function enableSchedule(x){setBusy(true);setError('');try{await api(`/api/admin/schedules/${x.workspace_id}/enable`,{method:'POST'});await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function closeTicket(t){setBusy(true);setError('');try{await api(`/api/remediation-tickets/${t.id}/status`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({status:'closed'})});await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
+  async function retestTicket(t){setBusy(true);setError('');try{await api(`/api/remediation-tickets/${t.id}/retest`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({outcome:'ready_for_retest',reviewer:'analyst',evidence_note:'Client reports fix ready for Vanguard retest.'})});await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function pickIntelMode(e){const m=e.target.value;setIntelMode(m);try{await api('/api/intelligence/models',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode:m})})}catch(err){setError(err.message)}}
 
   const newestRun=dash?.runs?.[0],pendingRun=run?.status==='awaiting_approval'?run:(newestRun?.status==='awaiting_approval'?newestRun:null),current=run||newestRun,findings=report?.findings||dash?.findings||[],commerce=dash?.commerce||{};
@@ -91,7 +92,7 @@ function App(){
           {view==='authtest'&&<AuthTesting current={current} setError={setError}/>} 
           {view==='approvals'&&<Approvals admin={admin} onApprove={approveQueueRun} onExecute={executeQueueRun}/>}
           {view==='domains'&&<Domains domains={domains} onRevoke={revokeDomain}/>}
-          {view==='remediation'&&<Remediation tickets={tickets} onClose={closeTicket}/>}
+          {view==='remediation'&&<Remediation tickets={tickets} onClose={closeTicket} onRetest={retestTicket}/>}
           {view==='schedules'&&<Schedules schedules={schedules} onEnable={enableSchedule}/>}
           {view==='team'&&<Team users={users}/>}
           {view==='billing'&&<Billing billing={billing} summary={summary}/>}
@@ -108,7 +109,7 @@ function App(){
 
 function StatusBar({current}){if(!current)return null;return <div className="statusbar"><Activity size={18} color="#36d399"/><div><b>{current.status}</b><span> · {current.stage}</span></div><div className="prog"><progress max="100" value={current.progress||0}/></div><span>{current.progress||0}%</span></div>}
 function Pill({kind,children}){return <span className={'pill '+kind}>{children}</span>}
-function StatusPill({s}){const v=s||'unknown';const k={completed:'ok',browser_recon_complete:'ok',report_ready:'ok',approved:'ok',human_verified:'ok',active:'ok',awaiting_approval:'warn',payment_required:'bad',queued:'info',needs_human_setup:'warn',domain_revoked:'bad',cancelled:'bad'}[v]||'mut';return <Pill kind={k}>{String(v).replace(/_/g,' ')}</Pill>}
+function StatusPill({s}){const v=s||'unknown';const k={completed:'ok',browser_recon_complete:'ok',report_ready:'ok',approved:'ok',human_verified:'ok',active:'ok',retest_passed:'ok',retest_ready:'info',awaiting_approval:'warn',payment_required:'bad',queued:'info',needs_human_setup:'warn',retest_failed:'bad',domain_revoked:'bad',cancelled:'bad'}[v]||'mut';return <Pill kind={k}>{String(v).replace(/_/g,' ')}</Pill>}
 
 function Overview({dash,summary,readiness,costGov,current,pendingRun,tier,setTier,url,setUrl,start,buyDetailed,approve,billing,busy,payment,intelModels,intelMode,pickIntelMode,upi,setUpi,mintUpi,upiKey,setUpiKey}){
   const s=summary?.operations||{}, rev=summary?.commerce||{}, risk=summary?.risk||{}, com=dash?.commerce||{};
@@ -230,14 +231,14 @@ function Domains({domains,onRevoke}){
   </div></div>;
 }
 
-function Remediation({tickets,onClose}){
+function Remediation({tickets,onClose,onRetest}){
   const t=tickets?.tickets||[];
   return <div className="view"><div className="panel"><h3>Remediation tickets <span className="count">{t.length}</span></h3>
     {t.length===0&&<div className="empty">No remediation tickets. Run a scan to generate them from findings.</div>}
     {t.map(x=><div key={x.id} className="item">
       <div className="top"><b><span className={'sev '+x.severity}>{x.severity}</span>{x.title}</b>{StatusPill(x.status)}</div>
-      <span className="meta">owner {x.owner} · finding #{x.finding_id}</span>
-      {x.status!=='closed'&&<button className="btn ghost" onClick={()=>onClose(x)}>Close ticket</button>}
+      <span className="meta">owner {x.owner} · finding #{x.finding_id}{x.retest_run_id?` · retest run #${x.retest_run_id}`:''}</span>
+      <div className="row" style={{marginTop:8}}>{x.status!=='closed'&&<button className="btn ghost" onClick={()=>onClose(x)}>Close ticket</button>}{!x.status?.startsWith('retest_')&&<button className="btn" onClick={()=>onRetest(x)}>Create retest</button>}</div>
     </div>)}
   </div></div>;
 }

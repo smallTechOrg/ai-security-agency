@@ -53,6 +53,16 @@ curl http://127.0.0.1:8011/api/workspaces/<workspace_id>/auth-sessions
 curl -X POST http://127.0.0.1:8011/api/runs/<run_id>/authenticated-form-test
 ```
 
+## Remediation retests
+
+Remediation tickets can spawn non-destructive retest validation runs. A retest packages the original finding, remediation guidance, reviewer note, and outcome into a new run with its own evidence, task log, cost event, and audit trail.
+
+```bash
+curl -X POST http://127.0.0.1:8011/api/remediation-tickets/<ticket_id>/retest \
+  -H 'content-type: application/json' \
+  -d '{"outcome":"ready_for_retest","reviewer":"analyst"}'
+```
+
 ## Safety boundary
 
 Only test targets you own or are authorized to test. Phase 1 performs passive/safe checks only: same-origin crawl, headers, TLS metadata, forms inventory, common public files, evidence capture, report generation. Destructive exploitation, data exfiltration, brute force, bypass, spam, and availability-impacting tests are policy-blocked.

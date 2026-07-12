@@ -117,6 +117,23 @@ def test_remediation_ticket_generation_and_status():
     tickets=client.get('/api/remediation-tickets'); assert tickets.status_code==200; tid=tickets.json()['tickets'][0]['id']; assert tickets.json()['tickets'][0]['status']=='open'
     closed=client.post(f'/api/remediation-tickets/{tid}/status', json={'status':'closed'}); assert closed.status_code==200; assert closed.json()['ticket']['status']=='closed'
 
+def test_remediation_retest_creates_validation_run():
+    r=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'RT','workspace_name':'RT','scan_tier':'free'}); run=r.json(); rid=run['run_id']
+    client.post(f'/api/admin/domain-queue/{rid}/approve', json={'decided_by':'admin','reason':'owner verified'})
+    from app.db import SessionLocal
+    from app import models
+    db=SessionLocal()
+    try:
+        f=models.Finding(run_id=rid,severity='High',title='Retestable finding',description='test',evidence='before',remediation='fix it',compliance={'OWASP':'A05'})
+        db.add(f); db.commit(); db.refresh(f); fid=f.id
+    finally:
+        db.close()
+    gen=client.post(f'/api/runs/{rid}/remediation-tickets'); assert gen.status_code==200
+    tickets=client.get('/api/remediation-tickets').json()['tickets']; tid=next(t['id'] for t in tickets if t['finding_id']==fid)
+    retest=client.post(f'/api/remediation-tickets/{tid}/retest', json={'outcome':'passed','reviewer':'qa','evidence_note':'headers fixed'}); assert retest.status_code==200
+    body=retest.json(); assert body['ticket']['status']=='retest_passed'; assert body['ticket']['retest_run_id'] > 0; assert body['retest_run']['stage']=='retest_passed'
+    tasks=client.get(f"/api/runs/{body['ticket']['retest_run_id']}/tasks"); assert tasks.status_code==200; assert any(t['module']=='remediation_retest' for t in tasks.json()['tasks'])
+
 def test_program_summary_endpoint():
     summary=client.get('/api/program/summary'); assert summary.status_code==200; body=summary.json(); assert body['product']=='Vanguard by Zer0'; assert 'risk' in body and 'operations' in body and 'commerce' in body; assert body['operations']['domains_total'] >= body['operations']['domains_approved']
 
