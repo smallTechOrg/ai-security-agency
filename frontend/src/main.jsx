@@ -2,7 +2,7 @@ import React,{useEffect,useState}from'react';
 import{createRoot}from'react-dom/client';
 import{Shield,Activity,FileText,CheckCircle,AlertTriangle,DollarSign,Brain,LockKeyhole,LayoutDashboard,ScanLine,ShieldCheck,Users,ListChecks,ScrollText,CalendarClock,Receipt,Radio,Wrench,ChevronRight,GitBranch,Code2,KeyRound}from'lucide-react';
 import'./style.css';
-const API=import.meta.env.VITE_API_BASE_URL||'http://127.0.0.1:8011';
+const API=import.meta.env.VITE_API_BASE_URL||((typeof location!=='undefined'&&(location.hostname==='localhost'||location.hostname==='127.0.0.1'))?'http://127.0.0.1:8011':'');
 
 class EB extends React.Component{constructor(p){super(p);this.state={e:null}}static getDerivedStateFromError(e){return{e}}componentDidCatch(e){console.error('BOUND ERR',e&&e.message,e&&e.stack)}
   render(){if(this.state.e)return <div className="empty" style={{padding:40}}>View error: {String(this.state.e.message||this.state.e)}</div>;return this.props.children}}

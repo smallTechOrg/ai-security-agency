@@ -12,21 +12,15 @@ PROJECT="${GCP_PROJECT:-ai-agent-boilerplate0}"
 REGION="${GCP_REGION:-us-central1}"
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
-ENV_TARGET="${ENV:-}"
-if [[ -z "$ENV_TARGET" ]]; then
-  if [[ "$BRANCH" == "main" ]]; then ENV_TARGET="prod"; else ENV_TARGET="dev"; fi
-fi
-
-if [[ "$ENV_TARGET" == "prod" ]]; then
-  SERVICE="zero-vanguard"
-else
-  SERVICE="zero-vanguard-dev"
-fi
+# Single-service deploy: everything goes to `zero-vanguard`, which the global
+# HTTPS load balancer fronts. Override with SERVICE=... for a throwaway service.
+SERVICE="${SERVICE:-zero-vanguard}"
+ENV_TARGET="${ENV:-prod}"
 
 echo "==> Project : $PROJECT"
 echo "==> Region  : $REGION"
 echo "==> Branch  : $BRANCH"
-echo "==> Target  : $ENV_TARGET ($SERVICE)"
+echo "==> Service : $SERVICE ($ENV_TARGET)"
 
 # Runtime env vars. Secrets (API keys) are set separately, once, via:
 #   gcloud run services update $SERVICE --update-secrets=... OR --set-env-vars in console.
