@@ -22,9 +22,10 @@ echo "==> Region  : $REGION"
 echo "==> Branch  : $BRANCH"
 echo "==> Service : $SERVICE ($ENV_TARGET)"
 
-# Runtime env vars. Secrets (API keys) are set separately, once, via:
-#   gcloud run services update $SERVICE --update-secrets=... OR --set-env-vars in console.
-RUNTIME_ENV="ENVIRONMENT=$ENV_TARGET,CORS_ORIGINS=*"
+# Non-secret runtime env. API keys/UPI live in Secret Manager (see --set-secrets
+# below) so they survive every deploy — set once with scripts/setup-secrets.sh.
+RUNTIME_ENV="ENVIRONMENT=$ENV_TARGET,CORS_ORIGINS=*,OPENAI_MODEL=gpt-5-chat-latest,GEMINI_MODEL=gemini-2.5-flash"
+SECRETS="AGENT_OPENAI_API_KEY=vanguard-openai-key:latest,OPENAI_API_KEY=vanguard-openai-key:latest,AGENT_GEMINI_API_KEY=vanguard-gemini-key:latest,GEMINI_API_KEY=vanguard-gemini-key:latest,UPI_ID=vanguard-upi-id:latest"
 
 gcloud run deploy "$SERVICE" \
   --project "$PROJECT" \
@@ -37,6 +38,7 @@ gcloud run deploy "$SERVICE" \
   --timeout 300 \
   --concurrency 40 \
   --set-env-vars "$RUNTIME_ENV" \
+  --set-secrets "$SECRETS" \
   --labels "app=zero-vanguard,env=$ENV_TARGET,branch=$(echo "$BRANCH" | tr '/_' '--' | tr -cd 'a-z0-9-')"
 
 URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" --format='value(status.url)')"
