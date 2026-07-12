@@ -28,7 +28,7 @@ REPORTER_SYSTEM = (
 )
 
 
-def reporter_agent(target, findings, app_model) -> dict:
+def reporter_agent(target, findings, app_model, db=None, run_id=None) -> dict:
     """LLM-backed Reporter sub-agent → business-impact assessment. Deterministic fallback on any failure."""
     am = app_model or {}
     sectors = ', '.join(am.get('likely_sectors', []) or ['general website'])
@@ -41,14 +41,22 @@ def reporter_agent(target, findings, app_model) -> dict:
         'downtime to remediate.'
     )
     try:
-        from . import llm
         prompt = (f'{REPORTER_SYSTEM}\n\nTarget: {target}\nBusiness type: {sectors}\n'
                   f'Findings: {finding_lines}\n\nWrite the business-impact assessment now.')
-        for mode, entry in _provider_chain():
-            out = llm.live_intelligence(prompt, mode, entry)
-            if out and out.get('summary'):
-                return {'agent': 'Reporter', 'llm_backed': True, 'source': f'ai:{entry.get("provider")}',
-                        'model': entry.get('model'), 'assessment': out['summary'].strip()}
+        chain = _provider_chain()
+        out = entry = None
+        if db is not None:
+            from . import observability
+            out, entry = observability.call_with_trace(db, run_id, 'Reporter', prompt, chain)
+        else:
+            from . import llm
+            for m, e in chain:
+                r = llm.live_intelligence(prompt, m, e)
+                if r and r.get('summary'):
+                    out, entry = r, e; break
+        if out and out.get('summary'):
+            return {'agent': 'Reporter', 'llm_backed': True, 'source': f'ai:{entry.get("provider")}',
+                    'model': entry.get('model'), 'assessment': out['summary'].strip()}
     except Exception:
         pass
     return {'agent': 'Reporter', 'llm_backed': False, 'source': 'deterministic',

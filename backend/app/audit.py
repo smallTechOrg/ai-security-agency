@@ -119,7 +119,7 @@ def build_report(db:Session, run_id:int)->dict:
     reporter_ev=next((e for e in evidence if e.kind=='reporter-agent'),None)
     if reporter_ev is None and findings:
         from . import agents as _ag
-        reporter=_ag.reporter_agent(asset.url,findings,run.app_model)
+        reporter=_ag.reporter_agent(asset.url,findings,run.app_model,db=db,run_id=run_id)
         db.add(models.Evidence(run_id=run_id,kind='reporter-agent',title='Reporter sub-agent assessment',data=reporter)); db.commit()
     else:
         reporter=reporter_ev.data if reporter_ev else None
@@ -127,5 +127,7 @@ def build_report(db:Session, run_id:int)->dict:
     from . import memory as _mem
     _mem.record_for_run(db,run,asset,findings)
     memory=_mem.summary_for_run(db,run,asset)
+    from . import observability as _obs
+    observability=_obs.for_run(db,run_id)
     exec_summary=(detailed_depth.get('executive_narrative') if detailed_depth else None) or f'Safe baseline audit completed for {asset.url}. {len(findings)} findings require reviewer validation before client delivery.'
-    return {'run_id':run_id,'target':asset.url,'status':run.status,'scan_tier':tier,'security_score':score,'certificate_status':'review-required' if findings else 'baseline-pass-review-required','executive_summary':exec_summary,'app_model':run.app_model,'browser':browser,'detailed_depth':detailed_depth,'agent_loop':agent_loop,'reporter':reporter,'memory':memory,'findings':[{'severity':f.severity,'title':f.title,'description':f.description,'evidence':f.evidence,'remediation':f.remediation,'compliance':f.compliance} for f in findings],'evidence_count':len(evidence),'cost_estimate_usd':run.cost_estimate_usd,'next_steps':['Reviewer validates findings','Approve authenticated/deeper testing if in scope','Retest after remediation']}
+    return {'run_id':run_id,'target':asset.url,'status':run.status,'scan_tier':tier,'security_score':score,'certificate_status':'review-required' if findings else 'baseline-pass-review-required','executive_summary':exec_summary,'app_model':run.app_model,'browser':browser,'detailed_depth':detailed_depth,'agent_loop':agent_loop,'reporter':reporter,'memory':memory,'observability':observability,'findings':[{'severity':f.severity,'title':f.title,'description':f.description,'evidence':f.evidence,'remediation':f.remediation,'compliance':f.compliance} for f in findings],'evidence_count':len(evidence),'cost_estimate_usd':run.cost_estimate_usd,'next_steps':['Reviewer validates findings','Approve authenticated/deeper testing if in scope','Retest after remediation']}

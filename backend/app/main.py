@@ -132,6 +132,11 @@ def tasks(run_id:int, db:Session=Depends(get_db)):
     costs=db.query(models.CostEvent).filter_by(run_id=run_id).order_by(models.CostEvent.id).all()
     reports=db.query(models.ReportVersion).filter_by(run_id=run_id).order_by(models.ReportVersion.id.desc()).all()
     return {'tasks':[{'module':t.module,'target':t.target,'status':t.status,'summary':t.summary,'error':t.error} for t in rows], 'costs':[{'provider':c.provider,'operation':c.operation,'estimated_usd':c.estimated_usd,'estimated_tokens':c.estimated_tokens,'detail':c.detail} for c in costs], 'report_versions':[{'id':r.id,'status':r.status,'created_at':r.created_at.isoformat()} for r in reports]}
+@app.get('/api/runs/{run_id}/observability')
+def run_observability(run_id:int, db:Session=Depends(get_db)):
+    from . import observability
+    return observability.for_run(db, run_id)
+
 @app.get('/api/workspaces/{workspace_id}/memory')
 def workspace_memory(workspace_id:int, db:Session=Depends(get_db)):
     from . import memory

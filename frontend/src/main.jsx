@@ -259,6 +259,15 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
       <h3><FileText size={16}/> Reporter sub-agent <span className={'pill '+(report.reporter.llm_backed?'ok':'mut')}>{report.reporter.llm_backed?`LLM · ${report.reporter.source}`:'deterministic'}</span></h3>
       <p style={{marginTop:8,lineHeight:1.6}}>{report.reporter.assessment}</p>
     </div>}
+    {report.observability&&report.observability.llm_calls>0&&<div className="panel" style={{marginTop:16,border:'1px solid #2f81f7',background:'linear-gradient(180deg,rgba(47,129,247,0.08),transparent)'}}>
+      <h3><Activity size={16}/> Agent observability <span className="pill info">LLM tracing</span></h3>
+      <div className="grid" style={{marginTop:8}}>
+        <div className="card"><div className="ic"><Brain size={18}/></div><h3>LLM calls</h3><b>{report.observability.llm_calls}</b><p>{report.observability.successful} ok · {report.observability.failovers} failover</p></div>
+        <div className="card"><div className="ic"><Activity size={18}/></div><h3>Avg latency</h3><b>{report.observability.avg_latency_ms}ms</b><p>total {report.observability.total_latency_ms}ms</p></div>
+        <div className="card"><div className="ic"><ShieldCheck size={18}/></div><h3>Providers</h3><b style={{fontSize:14}}>{(report.observability.providers_used||[]).join(', ')||'none'}</b><p>resilient failover</p></div>
+      </div>
+      <div style={{marginTop:10}}>{report.observability.calls.map((c,i)=><div key={i} className="log">{c.ok?'✓':'✗'} {c.agent} · {c.provider}/{c.model} · {c.latency_ms}ms{c.fallback?' · fallback'+(c.error?' ('+c.error+')':''):''}</div>)}</div>
+    </div>}
     {report.memory?.long_term&&<div className="panel" style={{marginTop:16,border:'1px solid #d9a441',background:'linear-gradient(180deg,rgba(217,164,65,0.08),transparent)'}}>
       <h3><Brain size={16}/> Agent memory <span className="pill mut">accumulating</span></h3>
       <div className="grid" style={{marginTop:8}}>
