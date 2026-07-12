@@ -90,6 +90,80 @@ def probe_clickjacking(client, url):
     return None
 
 
+SQL_ERROR_SIGNS = ('you have an error in your sql syntax', 'warning: mysql', 'unclosed quotation mark',
+                   'pg_query', 'sqlite3.operationalerror', 'psql:', 'odbc sql', 'ora-01756', 'sqlstate')
+
+
+def probe_sql_error_indicator(client, url):
+    """Detection only: append one benign quote and look for a DB error signature. No data extraction."""
+    try:
+        sep = '&' if '?' in url else '?'
+        r = client.get(f"{url}{sep}id={CANARY}'")
+        low = r.text.lower()
+        if any(s in low for s in SQL_ERROR_SIGNS):
+            return ('High', 'SQL error signature exposed on malformed input',
+                    'A single quote in a parameter triggered a database error message in the response — a strong '
+                    'SQL-injection indicator. No data was extracted; this is detection only.',
+                    'Database error string reflected after appending a quote to a parameter.',
+                    'Use parameterized queries/prepared statements and suppress verbose DB errors.',
+                    {'OWASP': 'A03 Injection'})
+    except Exception:
+        pass
+    return None
+
+
+def probe_http_methods(client, url):
+    try:
+        r = client.request('OPTIONS', url)
+        allow = r.headers.get('allow', '') or r.headers.get('access-control-allow-methods', '')
+        risky = [m for m in ('PUT', 'DELETE', 'TRACE', 'CONNECT', 'PATCH') if m in allow.upper()]
+        if risky:
+            return ('Medium', f'Risky HTTP methods enabled: {", ".join(risky)}',
+                    'The server advertises state-changing or debug HTTP methods that are rarely needed publicly.',
+                    f'Allow: {allow}',
+                    'Disable unused methods (esp. TRACE/PUT/DELETE) at the web server or WAF.',
+                    {'OWASP': 'A05 Security Misconfiguration'})
+    except Exception:
+        pass
+    return None
+
+
+def probe_host_header(client, url):
+    """Detection: send a spoofed Host and see if it is reflected into links/redirects."""
+    parsed = urlparse(url)
+    try:
+        r = client.get(url, headers={'Host': f'{CANARY}.evil.example'})
+        loc = r.headers.get('location', '')
+        if f'{CANARY}.evil.example' in loc or f'{CANARY}.evil.example' in r.text[:5000]:
+            return ('Medium', 'Host header reflected (possible host-header injection)',
+                    'A spoofed Host header was reflected into a redirect or the page, which can enable cache '
+                    'poisoning or password-reset poisoning.',
+                    f'Spoofed Host reflected: {CANARY}.evil.example',
+                    'Validate the Host header against an allow-list; do not build URLs from it.',
+                    {'OWASP': 'A05 Security Misconfiguration'})
+    except Exception:
+        pass
+    return None
+
+
+def probe_error_disclosure(client, url):
+    parsed = urlparse(url)
+    origin = f'{parsed.scheme}://{parsed.netloc}'
+    try:
+        r = client.get(f'{origin}/{CANARY}/%00../.%2e/')
+        low = r.text.lower()
+        if any(s in low for s in ('traceback (most recent call last)', 'stack trace', 'exception in thread',
+                                  'at java.', 'system.web.', '<b>warning</b>', 'fatal error')):
+            return ('Low', 'Verbose error / stack trace disclosure',
+                    'An unusual request elicited a stack trace or framework error, leaking internal implementation detail.',
+                    'Stack-trace/error signature returned for a malformed path.',
+                    'Return generic error pages; log details server-side only.',
+                    {'OWASP': 'A05 Security Misconfiguration'})
+    except Exception:
+        pass
+    return None
+
+
 def run(db: Session, run_id: int) -> dict:
     run = db.get(models.AuditRun, run_id)
     asset = db.get(models.Asset, run.asset_id)
@@ -97,8 +171,10 @@ def run(db: Session, run_id: int) -> dict:
         return {'ok': False, 'reason': 'domain not authorized for active testing'}
     t = audit.task(db, run.id, 'safe_active_probe', asset.url)
     results = []
+    checks = (probe_reflected_input, probe_cors, probe_open_redirect, probe_clickjacking,
+              probe_sql_error_indicator, probe_http_methods, probe_host_header, probe_error_disclosure)
     with _client() as client:
-        for fn in (probe_reflected_input, probe_cors, probe_open_redirect, probe_clickjacking):
+        for fn in checks:
             f = fn(client, asset.url)
             if f:
                 results.append(f)
@@ -106,8 +182,8 @@ def run(db: Session, run_id: int) -> dict:
     db.add(models.Evidence(run_id=run.id, kind='active-probe',
                            title='Safe active probe results',
                            data={'authorized': True, 'non_destructive': True,
-                                 'findings': len(results), 'checks_run': 4, 'canary': CANARY}))
-    audit.finish_task(db, t, f'Ran 4 non-destructive active probes; {len(results)} issues confirmed')
+                                 'findings': len(results), 'checks_run': len(checks), 'canary': CANARY}))
+    audit.finish_task(db, t, f'Ran {len(checks)} non-destructive active probes; {len(results)} issues confirmed')
     audit.cost(db, run.id, 'deterministic', 'safe_active_probe', 0.0, detail={'findings': len(results)})
     model = dict(run.app_model or {}); model['active_probe'] = True; run.app_model = model
     db.commit()

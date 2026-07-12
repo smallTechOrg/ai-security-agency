@@ -106,7 +106,7 @@ def run_agent_loop(target, app_model, findings, browser, max_iters=12) -> dict:
         ('auth_probe',  lambda s: _has_login(),    'Recon',        'Detected an authentication surface',
          lambda: 'Login/session flow present → flagged authenticated testing as the next authorized step.'),
         ('active_probe', lambda s: bool(am.get('active_probe')), 'Active Probe', 'Ran authorized non-destructive active checks',
-         lambda: 'Sent benign canaries for reflected-input, CORS, open-redirect, and clickjacking — no exploit payloads.'),
+         lambda: 'Ran 8 non-destructive checks: reflected-input, CORS, open-redirect, clickjacking, SQL-error signature, HTTP methods, host-header, error disclosure — detection only, no exploit payloads.'),
         ('fingerprint', lambda s: True,            'Fingerprint',  'Identified the technology stack',
          lambda: f'Server: {(am.get("tech_hints") or {}).get("server","unknown")}; checked for vulnerable/EOL components.'),
         ('privacy',     lambda s: _has_trackers(), 'Privacy',      'Observed third-party data sharing',
