@@ -189,4 +189,4 @@ def run(db: Session, run_id: int) -> dict:
     db.commit()
     audit.log(db, run.workspace_id, run.id, 'active_probe.completed',
               {'findings': len(results), 'non_destructive': True}, actor='active-probe-agent')
-    return {'ok': True, 'findings': len(results), 'checks_run': 4}
+    return {'ok': True, 'findings': len(results), 'checks_run': len(checks)}
