@@ -22,15 +22,23 @@ def health(): return {'status':'ok' if db_health() else 'error','db':True,'provi
 def bootstrap(req:schemas.BootstrapRequest, db:Session=Depends(get_db)):
     validate_public_http_url(str(req.target_url))
     tier=req.scan_tier if req.scan_tier in {'free','detailed'} else 'free'
-    paid=tier=='detailed' and bool(req.payment_reference.strip())
+    # Detailed tier unlocked by EITHER a stripe payment_reference OR an admin-activated UPI access key.
+    key_row=None
+    if tier=='detailed' and not req.payment_reference.strip() and req.access_key.strip():
+        key_row=db.query(models.AccessKey).filter_by(key=req.access_key.strip()).first()
+        if not key_row or key_row.status!='active':
+            raise HTTPException(402,'valid activated access key required for detailed scan')
+    paid = bool(req.payment_reference.strip()) or (key_row is not None)
     client=models.Client(name=req.client_name); db.add(client); db.commit(); db.refresh(client)
     effective_budget=max(req.budget_usd,49.0) if tier=='detailed' and paid else (req.budget_usd if req.budget_usd>0 else settings.default_budget_usd)
     ws=models.Workspace(client_id=client.id,name=req.workspace_name,budget_usd=effective_budget); db.add(ws); db.commit(); db.refresh(ws)
+    if key_row:
+        key_row.workspace_id=ws.id
     asset=models.Asset(workspace_id=ws.id,url=str(req.target_url),authorized=(tier=='free'),scope_note=req.scope_note); db.add(asset); db.commit(); db.refresh(asset)
     status='awaiting_approval' if tier=='free' else ('awaiting_approval' if paid else 'payment_required')
     stage='safe_baseline_approval' if tier=='free' else ('admin_domain_approval' if paid else 'payment_required')
     progress=5 if status=='awaiting_approval' else 2
-    run=models.AuditRun(workspace_id=ws.id,asset_id=asset.id,status=status,stage=stage,progress=progress,app_model={'scan_tier':tier,'payment_status':'paid' if paid else ('not_required' if tier=='free' else 'required'),'domain_approved':asset.authorized}); db.add(run); db.commit(); db.refresh(run)
+    run=models.AuditRun(workspace_id=ws.id,asset_id=asset.id,status=status,stage=stage,progress=progress,app_model={'scan_tier':tier,'payment_status':'paid' if paid else ('not_required' if tier=='free' else 'required'),'domain_approved':asset.authorized,'access_key':bool(key_row)}); db.add(run); db.commit(); db.refresh(run)
     reason='Free high-level audit: reviewer confirms authorization before safe passive scan.' if tier=='free' else ('Paid detailed audit: admin must approve domain ownership before testing.' if paid else 'Detailed audit requires payment before admin domain approval.')
     db.add(models.Approval(run_id=run.id,action='domain_scan_authorization',status='pending' if status=='awaiting_approval' else 'payment_required',reason=reason)); db.commit()
     audit.log(db,ws.id,run.id,'workspace.created',{'target':asset.url,'budget_usd':req.budget_usd,'scan_tier':tier,'payment_status':run.app_model['payment_status']})
@@ -89,7 +97,11 @@ def report(run_id:int, db:Session=Depends(get_db)):
 @app.api_route('/api/runs/{run_id}/report.html', methods=['GET','HEAD'], response_class=HTMLResponse)
 def report_html(run_id:int, db:Session=Depends(get_db)):
     rep=report(run_id,db); findings=''.join([f"<li><b>{f['severity']}: {f['title']}</b><p>{f['description']}</p><small>{f['remediation']}</small></li>" for f in rep['findings']])
-    return f"""<!doctype html><html><head><title>Zer0 Vanguard Report #{run_id}</title><style>body{{font-family:Inter,system-ui;background:#07111f;color:#e5eefb;padding:40px}}section{{background:#0d1b2f;border:1px solid #263d5b;border-radius:18px;padding:24px}}li{{margin:14px 0}}</style></head><body><section><h1>Zer0 — The Vanguard</h1><h2>Security Report for {rep['target']}</h2><p>{rep['executive_summary']}</p><h3>Score: {rep['security_score']}/100</h3><p>Status: {rep['certificate_status']} · Cost: ${rep['cost_estimate_usd']}</p><h3>Findings</h3><ul>{findings}</ul><h3>Next steps</h3><ol>{''.join([f'<li>{x}</li>' for x in rep['next_steps']])}</ol></section></body></html>"""
+    b=rep.get('browser') or {}
+    shot=f"<h3>Rendered evidence ({b.get('engine','')})</h3><img src='/api/runs/{run_id}/screenshot' style='max-width:100%;border-radius:12px;border:1px solid #263d5b'/>" if b.get('screenshot_available') else ''
+    gap=b.get('spa_gap') or {}
+    browser_block=(f"<section><h2>Browser-assisted recon</h2><p>Engine: <b>{b.get('engine')}</b> · Browser-only findings: <b>{b.get('browser_only_findings',0)}</b> · Cookies observed: {b.get('cookies_observed',0)}</p><p>HTTP-only fetch saw <b>{gap.get('raw_forms',0)} forms / {gap.get('raw_links',0)} links</b>; real browser rendering saw <b>{gap.get('rendered_forms',0)} forms / {gap.get('rendered_links',0)} links</b>.</p>{shot}</section>" if b else '')
+    return f"""<!doctype html><html><head><title>Zer0 Vanguard Report #{run_id}</title><style>body{{font-family:Inter,system-ui;background:#07111f;color:#e5eefb;padding:40px}}section{{background:#0d1b2f;border:1px solid #263d5b;border-radius:18px;padding:24px;margin-bottom:20px}}li{{margin:14px 0}}</style></head><body><section><h1>Zer0 — The Vanguard</h1><h2>Security Report for {rep['target']}</h2><p>{rep['executive_summary']}</p><h3>Score: {rep['security_score']}/100</h3><p>Status: {rep['certificate_status']} · Cost: ${rep['cost_estimate_usd']}</p><h3>Findings</h3><ul>{findings}</ul><h3>Next steps</h3><ol>{''.join([f'<li>{x}</li>' for x in rep['next_steps']])}</ol></section>{browser_block}</body></html>"""
 @app.get('/api/runs/{run_id}/evidence-bundle')
 def evidence_bundle(run_id:int, db:Session=Depends(get_db)):
     if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
@@ -128,6 +140,45 @@ def payment_intent(req:schemas.PaymentIntentRequest):
     price=49 if req.scan_tier=='detailed' else 0
     return {'payment_required':price>0,'amount_usd':price,'currency':'usd','provider':'stub','payment_reference':f'zer0_stub_{abs(hash(str(req.target_url)))%1000000}','next_step':'Use this payment_reference in /api/bootstrap. Stripe checkout can replace this stub.'}
 
+@app.post('/api/payments/upi-qr')
+def upi_qr(req:schemas.AccessKeyRequest, db:Session=Depends(get_db)):
+    if not settings.upi_id:
+        raise HTTPException(400,'UPI_ID not configured on server')
+    import secrets
+    key=secrets.token_urlsafe(24)
+    row=models.AccessKey(key=key, plan=req.plan, status='pending', paid_via='upi'); db.add(row); db.commit()
+    amount=49
+    upi_string=f'upi://pay?pa={settings.upi_id}&pn=Zer0%20Vanguard&am={amount}&cu=INR&tn=Vanguard-{key[:8]}'
+    audit.log(db,0,0,'upi.key.minted',{'key':key[:8],'plan':req.plan},actor='operator')
+    return {'upi_id':settings.upi_id,'amount_inr':amount,'upi_string':upi_string,'qr_data':upi_string,'access_key':key,'status':'pending','note':'Scan with any UPI app. After payment, the admin activates this key; deep audit stays blocked until then.'}
+
+@app.get('/api/access-key/{key}')
+def access_key_status(key:str, db:Session=Depends(get_db)):
+    row=db.query(models.AccessKey).filter_by(key=key).first()
+    if not row: raise HTTPException(404,'key not found')
+    return {'key':key[:8],'plan':row.plan,'status':row.status,'paid_via':row.paid_via,'workspace_id':row.workspace_id,'activated_at':row.activated_at.isoformat() if row.activated_at else None}
+
+@app.post('/api/admin/access-key/{key}/activate')
+def activate_access_key(key:str, req:schemas.ApprovalRequest=schemas.ApprovalRequest(decided_by='admin', reason='UPI payment confirmed by admin.'), db:Session=Depends(get_db)):
+    row=db.query(models.AccessKey).filter_by(key=key).first()
+    if not row: raise HTTPException(404,'key not found')
+    if row.status=='active': return {'key':key[:8],'status':'active','already_active':True}
+    from datetime import datetime
+    row.status='active'; row.activated_by=req.decided_by; row.activated_at=datetime.utcnow(); db.commit()
+    audit.log(db,row.workspace_id,0,'upi.key.activated',{'key':key[:8],'by':req.decided_by,'reason':req.reason},actor=req.decided_by)
+    return {'key':key[:8],'status':'active','activated_by':req.decided_by}
+
+@app.post('/api/admin/access-key/{key}/revoke')
+def revoke_access_key(key:str, db:Session=Depends(get_db)):
+    row=db.query(models.AccessKey).filter_by(key=key).first()
+    if not row: raise HTTPException(404,'key not found')
+    row.status='revoked'; db.commit(); audit.log(db,row.workspace_id,0,'upi.key.revoked',{'key':key[:8]},actor='admin')
+    return {'key':key[:8],'status':'revoked'}
+
+@app.get('/api/admin/access-keys')
+def admin_access_keys(db:Session=Depends(get_db)):
+    rows=db.query(models.AccessKey).order_by(models.AccessKey.id.desc()).limit(100).all()
+    return {'keys':[{'key':r.key[:8],'plan':r.plan,'status':r.status,'paid_via':r.paid_via,'workspace_id':r.workspace_id,'created_at':r.created_at.isoformat(),'activated_at':r.activated_at.isoformat() if r.activated_at else None} for r in rows]}
 @app.get('/api/billing/plans')
 def billing_plans():
     return {'plans':{'free':{'price_usd':0,'audits':'high-level public posture','requires_admin_domain_approval':True},'vanguard':{'price_usd':49,'audits':'detailed scan pack','requires_admin_domain_approval':True,'includes':['paid detailed review','report exports','evidence bundle','recurring scan readiness']}},'provider':'stub','next_provider':'stripe'}
@@ -244,6 +295,14 @@ def client_report(run_id:int, role:str='client_viewer', db:Session=Depends(get_d
     rep=audit.build_report(db,run_id)
     if rep['status'] not in {'completed','report_ready','browser_recon_complete'}: raise HTTPException(409,'report not client-ready')
     return {'client_visible':True,'run_id':rep['run_id'],'target':rep['target'],'status':rep['status'],'security_score':rep['security_score'],'certificate_status':rep['certificate_status'],'executive_summary':rep['executive_summary'],'findings':rep['findings'],'cost_estimate_usd':rep['cost_estimate_usd'],'next_steps':rep['next_steps']}
+
+@app.api_route('/api/runs/{run_id}/screenshot', methods=['GET','HEAD'])
+def run_screenshot(run_id:int, db:Session=Depends(get_db)):
+    if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
+    from .artifacts import run_dir
+    shot=run_dir(run_id)/'homepage.png'
+    if not shot.is_file(): raise HTTPException(404,'no screenshot captured for this run')
+    return FileResponse(str(shot), media_type='image/png')
 
 @app.post('/api/runs/{run_id}/browser-recon')
 def browser_recon_endpoint(run_id:int, db:Session=Depends(get_db)):

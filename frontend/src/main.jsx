@@ -1,6 +1,6 @@
 import React,{useEffect,useState}from'react';
 import{createRoot}from'react-dom/client';
-import{Shield,Activity,FileText,CheckCircle,AlertTriangle,DollarSign,Brain,LockKeyhole,LayoutDashboard,ScanLine,ShieldCheck,Users,ListChecks,ScrollText,CalendarClock,Receipt,Radio,Wrench,ChevronRight,GitBranch,Code2}from'lucide-react';
+import{Shield,Activity,FileText,CheckCircle,AlertTriangle,DollarSign,Brain,LockKeyhole,LayoutDashboard,ScanLine,ShieldCheck,Users,ListChecks,ScrollText,CalendarClock,Receipt,Radio,Wrench,ChevronRight,GitBranch,Code2,KeyRound}from'lucide-react';
 import'./style.css';
 const API=import.meta.env.VITE_API_BASE_URL||'http://127.0.0.1:8011';
 
@@ -15,7 +15,12 @@ function App(){
   useEffect(()=>{load()},[]);
   function clearReport(){setReport(null);setTimeline(null);setTasks(null);setIntel(null);setEnterprise(null)}
   async function buyDetailed(){setBusy(true);setError('');try{const p=await api('/api/payments/intent',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({target_url:url,scan_tier:'detailed'})});setPayment(p.payment_reference);setTier('detailed')}catch(e){setError(e.message)}finally{setBusy(false)}}
-  async function start(){setBusy(true);setError('');clearReport();try{const j=await api('/api/bootstrap',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({target_url:url,client_name:'Vanguard Client',workspace_name:'Zer0 Security Program',budget_usd:tier==='detailed'?49:2.0,scan_tier:tier,payment_reference:payment})});setRun(j);setView('scans');await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
+  async function mintUpi(){setBusy(true);setError('');setUpi(null);try{const p=await api('/api/payments/upi-qr',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({plan:'vanguard'})});setUpi(p);setTier('detailed')}catch(e){setError(e.message)}finally{setBusy(false)}}
+  async function loadKeys(){try{setKeys(await api('/api/admin/access-keys'))}catch(e){}}
+  async function activateKey(k){setBusy(true);try{await api(`/api/admin/access-key/${k}/activate`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decided_by:'admin',reason:'UPI confirmed'})});await loadKeys()}catch(e){setError(e.message)}finally{setBusy(false)}}
+  async function revokeKey(k){setBusy(true);try{await api(`/api/admin/access-key/${k}/revoke`,{method:'POST'});await loadKeys()}catch(e){setError(e.message)}finally{setBusy(false)}}
+  useEffect(()=>{if(view==='keys')loadKeys()},[view]);
+  async function start(){setBusy(true);setError('');clearReport();const useKey=Boolean(upiKey.trim());try{const j=await api('/api/bootstrap',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({target_url:url,client_name:'Vanguard Client',workspace_name:'Zer0 Security Program',budget_usd:tier==='detailed'?49:2.0,scan_tier:tier,payment_reference:payment,access_key:useKey?upiKey.trim():''})});setRun(j);setView('scans');await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function openRun(r){const id=r.run_id||r.id;setBusy(true);setError('');setRun({run_id:id,workspace_id:r.workspace_id,asset_id:r.asset_id||0,status:r.status,stage:r.stage,progress:r.progress,app_model:r.app_model||{}});clearReport();try{if(['awaiting_approval','payment_required','queued'].includes(r.status)){if(r.workspace_id)setCostGov(await api(`/api/workspaces/${r.workspace_id}/cost-governor?run_id=${id}`));return;}const [rep,tl,tk,ai,ent,gov]=await Promise.all([api(`/api/runs/${id}/report`),api(`/api/runs/${id}/timeline`),api(`/api/runs/${id}/tasks`),api(`/api/runs/${id}/intelligence`),api(`/api/workspaces/${r.workspace_id}/enterprise`),api(`/api/workspaces/${r.workspace_id}/cost-governor?run_id=${id}`)]);setReport(rep);setTimeline(tl);setTasks(tk);setIntel(ai);setEnterprise(ent);setCostGov(gov);setView('report')}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function approve(){const active=run?.status==='awaiting_approval'?run:dash?.runs?.[0]?.status==='awaiting_approval'?dash.runs[0]:null;if(!active)return setError('Create a free audit or paid detailed scan first; admin approval unlocks testing.');const id=active.run_id||active.id;setBusy(true);setError('');try{await api(`/api/runs/${id}/approve`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decided_by:'admin',reason:'Domain ownership and testing scope approved.'})});const executed=await api(`/api/runs/${id}/execute`,{method:'POST'});setRun(executed);const br=await api(`/api/runs/${id}/browser-recon`,{method:'POST'});setRun({...executed,status:br.status,stage:br.stage,progress:br.progress});await api(`/api/workspaces/${active.workspace_id}/enterprise-program`,{method:'POST'});await load();await openRun({...executed,status:br.status,stage:br.stage,progress:br.progress})}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function approveQueueRun(x){setBusy(true);setError('');try{const approved=await api(`/api/admin/domain-queue/${x.run_id}/approve`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decided_by:'admin',reason:'Domain owner/admin approved from Vanguard queue.'})});setRun(approved);await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
@@ -27,8 +32,11 @@ function App(){
 
   const newestRun=dash?.runs?.[0],pendingRun=run?.status==='awaiting_approval'?run:(newestRun?.status==='awaiting_approval'?newestRun:null),current=run||newestRun,findings=report?.findings||dash?.findings||[],commerce=dash?.commerce||{};
   const open=tickets?.tickets?.filter(t=>t.status!=='closed').length;
-  const nav=[{id:'overview',label:'Overview',icon:LayoutDashboard},{id:'scans',label:'Scans',icon:ScanLine,badge:dash?.runs?.length},{id:'approvals',label:'Domain approvals',icon:ShieldCheck,badge:admin?.items?.filter(x=>x.status==='pending').length},{id:'domains',label:'Domain registry',icon:Radio},{id:'remediation',label:'Remediation',icon:ListChecks,badge:open},{id:'schedules',label:'Schedules',icon:CalendarClock},{id:'team',label:'Team & RBAC',icon:Users},{id:'billing',label:'Billing',icon:Receipt},{id:'audit',label:'Audit log',icon:ScrollText},{id:'readiness',label:'Launch readiness',icon:Wrench},{id:'repo',label:'Repo analysis',icon:Code2}];
+  const nav=[{id:'overview',label:'Overview',icon:LayoutDashboard},{id:'scans',label:'Scans',icon:ScanLine,badge:dash?.runs?.length},{id:'approvals',label:'Domain approvals',icon:ShieldCheck,badge:admin?.items?.filter(x=>x.status==='pending').length},{id:'domains',label:'Domain registry',icon:Radio},{id:'remediation',label:'Remediation',icon:ListChecks,badge:open},{id:'schedules',label:'Schedules',icon:CalendarClock},{id:'team',label:'Team & RBAC',icon:Users},{id:'billing',label:'Billing',icon:Receipt},{id:'audit',label:'Audit log',icon:ScrollText},{id:'readiness',label:'Launch readiness',icon:Wrench},{id:'repo',label:'Repo analysis',icon:Code2},{id:'keys',label:'Access keys',icon:KeyRound}];
   const[repo,setRepo]=useState(null);
+  const[upi,setUpi]=useState(null);
+  const[upiKey,setUpiKey]=useState('');
+  const[keys,setKeys]=useState(null);
 
   return (
     <div className="app">
@@ -49,7 +57,7 @@ function App(){
         </div>
         <div className="content">
           {error&&<div className="error">{error}</div>}
-          {view==='overview'&&<Overview dash={dash} summary={summary} readiness={readiness} costGov={costGov} current={current} pendingRun={pendingRun} tier={tier} setTier={setTier} url={url} setUrl={setUrl} start={start} buyDetailed={buyDetailed} approve={approve} billing={billing} busy={busy} payment={payment} intelModels={intelModels} intelMode={intelMode} pickIntelMode={pickIntelMode}/>}
+          {view==='overview'&&<Overview dash={dash} summary={summary} readiness={readiness} costGov={costGov} current={current} pendingRun={pendingRun} tier={tier} setTier={setTier} url={url} setUrl={setUrl} start={start} buyDetailed={buyDetailed} approve={approve} billing={billing} busy={busy} payment={payment} intelModels={intelModels} intelMode={intelMode} pickIntelMode={pickIntelMode} upi={upi} setUpi={setUpi} mintUpi={mintUpi} upiKey={upiKey} setUpiKey={setUpiKey}/>}
           {view==='scans'&&<Scans dash={dash} run={run} openRun={openRun} current={current}/>}
           {view==='approvals'&&<Approvals admin={admin} onApprove={approveQueueRun} onExecute={executeQueueRun}/>}
           {view==='domains'&&<Domains domains={domains} onRevoke={revokeDomain}/>}
@@ -60,6 +68,7 @@ function App(){
           {view==='audit'&&<AuditLogView log={auditLog}/>}
           {view==='readiness'&&<Readiness readiness={readiness}/>}
           {view==='repo'&&<RepoAnalyze repo={repo} setRepo={setRepo} busy={busy} setBusy={setBusy} setError={setError}/>}
+          {view==='keys'&&<AccessKeys keys={keys} onActivate={activateKey} onRevoke={revokeKey}/>}
           {view==='report'&&report&&<ReportView report={report} intel={intel} enterprise={enterprise} tasks={tasks} timeline={timeline} costGov={costGov} onClose={()=>setView('scans')}/>}
         </div>
       </div>
@@ -71,7 +80,7 @@ function StatusBar({current}){if(!current)return null;return <div className="sta
 function Pill({kind,children}){return <span className={'pill '+kind}>{children}</span>}
 function StatusPill({s}){const v=s||'unknown';const k={completed:'ok',browser_recon_complete:'ok',report_ready:'ok',approved:'ok',awaiting_approval:'warn',payment_required:'bad',queued:'info',domain_revoked:'bad',cancelled:'bad'}[v]||'mut';return <Pill kind={k}>{String(v).replace(/_/g,' ')}</Pill>}
 
-function Overview({dash,summary,readiness,costGov,current,pendingRun,tier,setTier,url,setUrl,start,buyDetailed,approve,billing,busy,payment}){
+function Overview({dash,summary,readiness,costGov,current,pendingRun,tier,setTier,url,setUrl,start,buyDetailed,approve,billing,busy,payment,intelModels,intelMode,pickIntelMode,upi,setUpi,mintUpi,upiKey,setUpiKey}){
   const s=summary?.operations||{}, rev=summary?.commerce||{}, risk=summary?.risk||{}, com=dash?.commerce||{};
   return <div className="view">
     <div className="hero">
@@ -82,6 +91,19 @@ function Overview({dash,summary,readiness,costGov,current,pendingRun,tier,setTie
         <button className={tier==='free'?'selected':''} onClick={()=>setTier('free')}><b>Free audit</b><span>Headers, TLS, public evidence</span></button>
         <button className={tier==='detailed'?'selected':''} onClick={buyDetailed}><b>Detailed scan · ${com.detailed_scan_price_usd||49}</b><span>Paid intent + admin domain approval</span></button>
       </div>
+      {tier==='detailed'&&<div className="upi">
+        <div className="upi-head"><LockKeyhole size={16}/> Pay with UPI (₹{upi?.amount_inr||49})</div>
+        {!upi&&<button className="btn" disabled={busy} onClick={mintUpi}>{busy?'Generating…':'Generate UPI QR'}</button>}
+        {upi&&<>
+          <div className="qrbox">
+            <div className="qr-meta"><b>{upi.upi_id}</b><span>₹{upi.amount_inr} · Vanguard</span></div>
+            <a className="upi-link" href={upi.upi_string}>{upi.upi_string}</a>
+            <div className="hint">Scan with any UPI app. After payment, the admin activates your access key below.</div>
+            <div className="keyrow"><span className="keylabel">Access key</span><code>{upi.access_key}</code></div>
+          </div>
+          <div className="row"><input value={upiKey} onChange={e=>setUpiKey(e.target.value)} placeholder="Paste your activated access key to run deep audit"/><button className="btn" disabled={busy} onClick={()=>setUpi(null)}>Clear</button></div>
+        </>}
+      </div>}
       <div className="row"><input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://target-domain.com"/><button className="btn" disabled={busy} onClick={start}>{busy?'Working…':tier==='free'?'Start free audit':'Request detailed scan'}</button>{pendingRun&&<button className="btn ghost" disabled={busy} onClick={approve}>Admin approve + run</button>}</div>
       {payment&&<div className="hint"><LockKeyhole size={16}/> Payment intent staged: <b>{payment}</b></div>}
       {billing&&<div className="hint">Billing: stub checkout intents + Stripe-ready webhook.</div>}
@@ -212,6 +234,15 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
     <div className="score">Security score <b>{report.security_score}</b>/100 · {report.certificate_status}</div>
     <p>{report.executive_summary}</p>
     {costGov&&<div className="hint">Cost governor: {costGov.allowed?'within budget':'over budget'} · remaining ${costGov.remaining_usd} · projected ${costGov.projected_run_cost_usd}</div>}
+    {report.browser&&<div className="panel" style={{marginTop:16}}>
+      <h3><ScanLine size={16}/> Browser-assisted recon <span className="count">{report.browser.engine}</span></h3>
+      <div className="grid" style={{marginTop:8}}>
+        <div className="card"><div className="ic"><AlertTriangle size={18}/></div><h3>Browser-only findings</h3><b>{report.browser.browser_only_findings}</b><p>Invisible to HTTP-only scans</p></div>
+        <div className="card"><div className="ic"><Code2 size={18}/></div><h3>Rendered surface</h3><b>{report.browser.spa_gap?.rendered_forms??0}f / {report.browser.spa_gap?.rendered_links??0}l</b><p>HTTP saw {report.browser.spa_gap?.raw_forms??0}f / {report.browser.spa_gap?.raw_links??0}l</p></div>
+        <div className="card"><div className="ic"><LockKeyhole size={18}/></div><h3>Cookies observed</h3><b>{report.browser.cookies_observed}</b><p>{report.browser.human_takeover?'Human takeover flagged':'Post-JS cookie jar'}</p></div>
+      </div>
+      {report.browser.screenshot_available&&<div style={{marginTop:12}}><img src={`${API}${report.browser.screenshot_url}`} alt="Rendered homepage evidence" style={{maxWidth:'100%',borderRadius:12,border:'1px solid #263d5b'}}/></div>}
+    </div>}
     <h3>Findings</h3>
     {report.findings.length===0&&<div className="empty">No findings recorded — baseline pass, pending reviewer sign-off.</div>}
     {report.findings.map((f,i)=><div className={'findbox '+f.severity.toLowerCase()} key={i}><b><span className={'sev '+f.severity}>{f.severity}</span>{f.title}</b><p>{f.description}</p><small>{f.remediation} · {Object.values(f.compliance||{}).join(', ')}</small></div>)}
@@ -219,6 +250,19 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
       <div><h3>AI report intelligence</h3><pre>{JSON.stringify(intel,null,2)}</pre><h3>Enterprise scaffold</h3><pre>{JSON.stringify(enterprise,null,2)}</pre></div>
       <div><h3>Agent tasks</h3>{tasks?.tasks?.map((t,i)=><div className="log" key={i}>{t.status} · {t.module} · {t.summary}</div>)}<h3>Cost events</h3>{tasks?.costs?.map((c,i)=><div className="log" key={i}>${c.estimated_usd} · {c.provider} · {c.operation}</div>)}<h3>Evidence timeline</h3>{timeline?.logs?.map((l,i)=><div className="log" key={i}>{l.created_at} · {l.actor} · {l.action}</div>)}</div>
     </div>
+  </div></div>;
+}
+
+function AccessKeys({keys,onActivate,onRevoke}){
+  const k=keys?.keys||[];
+  return <div className="view"><div className="panel"><h3>UPI access keys <span className="count">{k.length}</span></h3>
+    <div className="hint">Customers scan the UPI QR (Overview → Detailed scan), pay, then you activate their key here after confirming the receipt. Deep audits stay blocked until activated.</div>
+    {k.length===0&&<div className="empty">No access keys minted yet.</div>}
+    {k.map(x=><div key={x.key} className="item">
+      <div className="top"><b><code>{x.key}</code></b>{StatusPill(x.status)}</div>
+      <span className="meta">{x.plan} · {x.paid_via} · workspace {x.workspace_id}</span>
+      <div className="row" style={{marginTop:8}}>{x.status==='pending'&&<button className="btn" onClick={()=>onActivate(x.key)}>Activate (payment confirmed)</button>}{x.status==='active'&&<button className="btn danger" onClick={()=>onRevoke(x.key)}>Revoke</button>}</div>
+    </div>)}
   </div></div>;
 }
 
