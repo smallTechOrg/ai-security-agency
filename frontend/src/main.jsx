@@ -249,6 +249,12 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
     <div className="score">Security score <b>{report.security_score}</b>/100 · {report.certificate_status}</div>
     <p>{report.executive_summary}</p>
     {costGov&&<div className="hint">Cost governor: {costGov.allowed?'within budget':'over budget'} · remaining ${costGov.remaining_usd} · projected ${costGov.projected_run_cost_usd}</div>}
+    {report.agent_loop&&<div className="panel" style={{marginTop:16,border:'1px solid #36d399',background:'linear-gradient(180deg,rgba(54,211,153,0.08),transparent)'}}>
+      <h3><Brain size={16}/> Agentic reasoning loop <span className="pill ok">{report.agent_loop.iterations} iterations</span><span className="pill mut">stop: {report.agent_loop.stop_reason}</span></h3>
+      <div style={{marginTop:8}}>{report.agent_loop.trace.map((t,i)=><div key={i} className="item" style={{borderLeft:'2px solid #36d399'}}><div className="top"><b>#{t.iter} · {t.agent} agent</b><span className="pill mut">{t.decision}</span></div><span className="sub">{t.detail}</span></div>)}</div>
+      <h4 style={{marginTop:14}}>🤖 Recommended next actions</h4>
+      {report.agent_loop.recommended_actions.map((a,i)=><div key={i} className="item"><div className="top"><b>{a.action}</b><span className={'pill '+(a.priority==='High'?'bad':a.priority==='Medium'?'warn':'mut')}>{a.priority}</span></div><span className="sub">{a.why}</span></div>)}
+    </div>}
     {report.detailed_depth&&(()=>{const paid=report.scan_tier==='detailed';const accent=paid?'#7c5cff':'#2f81f7';return <div className="panel" style={{marginTop:16,border:`1px solid ${accent}`,background:`linear-gradient(180deg,${paid?'rgba(124,92,255,0.10)':'rgba(47,129,247,0.10)'},transparent)`}}>
       <h3><ShieldCheck size={16}/> {paid?'Vanguard Detailed Depth':'Security Depth Analysis'} <span className={'pill '+(paid?'info':'ok')}>{paid?'PAID · AI':'FREE'}</span></h3>
       <div className="grid" style={{marginTop:8}}>
