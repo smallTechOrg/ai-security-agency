@@ -2,13 +2,14 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-import os, subprocess
+import os, subprocess, secrets
+from datetime import datetime
 from .config import settings
 from .db import SessionLocal, init_db, db_health
 from . import models, schemas, audit
 from . import browser_recon, llm
 from .safety import validate_public_http_url
-app=FastAPI(title='Zer0 - The Vanguard', version='0.1.0')
+app=FastAPI(title='Vanguard by Zer0', version='0.1.0')
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in settings.cors_origins.split(',') if o.strip()], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
 @app.on_event('startup')
 def startup(): init_db()
@@ -18,19 +19,29 @@ def get_db():
     finally: db.close()
 @app.get('/health')
 def health(): return {'status':'ok' if db_health() else 'error','db':True,'provider':{'openai':settings.openai_key_present,'gemini':settings.gemini_key_present}}
+
+def active_access_key(db:Session, key:str):
+    key=(key or '').strip()
+    if not key: return None
+    return db.query(models.AccessKey).filter_by(key=key,status='active').first()
+
 @app.post('/api/bootstrap', response_model=schemas.RunOut)
 def bootstrap(req:schemas.BootstrapRequest, db:Session=Depends(get_db)):
     validate_public_http_url(str(req.target_url))
     tier=req.scan_tier if req.scan_tier in {'free','detailed'} else 'free'
-    paid=tier=='detailed' and bool(req.payment_reference.strip())
+    access=active_access_key(db, req.access_key)
+    paid=tier=='detailed' and (bool(req.payment_reference.strip()) or access is not None)
+    if tier=='detailed' and req.access_key.strip() and access is None:
+        raise HTTPException(402,'active access key required')
     client=models.Client(name=req.client_name); db.add(client); db.commit(); db.refresh(client)
+    if access: access.workspace_id=client.id
     effective_budget=max(req.budget_usd,49.0) if tier=='detailed' and paid else (req.budget_usd if req.budget_usd>0 else settings.default_budget_usd)
     ws=models.Workspace(client_id=client.id,name=req.workspace_name,budget_usd=effective_budget); db.add(ws); db.commit(); db.refresh(ws)
     asset=models.Asset(workspace_id=ws.id,url=str(req.target_url),authorized=(tier=='free'),scope_note=req.scope_note); db.add(asset); db.commit(); db.refresh(asset)
     status='awaiting_approval' if tier=='free' else ('awaiting_approval' if paid else 'payment_required')
     stage='safe_baseline_approval' if tier=='free' else ('admin_domain_approval' if paid else 'payment_required')
     progress=5 if status=='awaiting_approval' else 2
-    run=models.AuditRun(workspace_id=ws.id,asset_id=asset.id,status=status,stage=stage,progress=progress,app_model={'scan_tier':tier,'payment_status':'paid' if paid else ('not_required' if tier=='free' else 'required'),'domain_approved':asset.authorized}); db.add(run); db.commit(); db.refresh(run)
+    run=models.AuditRun(workspace_id=ws.id,asset_id=asset.id,status=status,stage=stage,progress=progress,app_model={'scan_tier':tier,'payment_status':'paid' if paid else ('not_required' if tier=='free' else 'required'), 'access_key_used': bool(access),'domain_approved':asset.authorized}); db.add(run); db.commit(); db.refresh(run)
     reason='Free high-level audit: reviewer confirms authorization before safe passive scan.' if tier=='free' else ('Paid detailed audit: admin must approve domain ownership before testing.' if paid else 'Detailed audit requires payment before admin domain approval.')
     db.add(models.Approval(run_id=run.id,action='domain_scan_authorization',status='pending' if status=='awaiting_approval' else 'payment_required',reason=reason)); db.commit()
     audit.log(db,ws.id,run.id,'workspace.created',{'target':asset.url,'budget_usd':req.budget_usd,'scan_tier':tier,'payment_status':run.app_model['payment_status']})
@@ -89,18 +100,18 @@ def report(run_id:int, db:Session=Depends(get_db)):
 @app.api_route('/api/runs/{run_id}/report.html', methods=['GET','HEAD'], response_class=HTMLResponse)
 def report_html(run_id:int, db:Session=Depends(get_db)):
     rep=report(run_id,db); findings=''.join([f"<li><b>{f['severity']}: {f['title']}</b><p>{f['description']}</p><small>{f['remediation']}</small></li>" for f in rep['findings']])
-    return f"""<!doctype html><html><head><title>Zer0 Vanguard Report #{run_id}</title><style>body{{font-family:Inter,system-ui;background:#07111f;color:#e5eefb;padding:40px}}section{{background:#0d1b2f;border:1px solid #263d5b;border-radius:18px;padding:24px}}li{{margin:14px 0}}</style></head><body><section><h1>Zer0 — The Vanguard</h1><h2>Security Report for {rep['target']}</h2><p>{rep['executive_summary']}</p><h3>Score: {rep['security_score']}/100</h3><p>Status: {rep['certificate_status']} · Cost: ${rep['cost_estimate_usd']}</p><h3>Findings</h3><ul>{findings}</ul><h3>Next steps</h3><ol>{''.join([f'<li>{x}</li>' for x in rep['next_steps']])}</ol></section></body></html>"""
+    return f"""<!doctype html><html><head><title>Vanguard by Zer0 Report #{run_id}</title><style>body{{font-family:Inter,system-ui;background:#07111f;color:#e5eefb;padding:40px}}section{{background:#0d1b2f;border:1px solid #263d5b;border-radius:18px;padding:24px}}li{{margin:14px 0}}</style></head><body><section><h1>Vanguard by Zer0</h1><h2>Security Report for {rep['target']}</h2><p>{rep['executive_summary']}</p><h3>Score: {rep['security_score']}/100</h3><p>Status: {rep['certificate_status']} · Cost: ${rep['cost_estimate_usd']}</p><h3>Findings</h3><ul>{findings}</ul><h3>Next steps</h3><ol>{''.join([f'<li>{x}</li>' for x in rep['next_steps']])}</ol></section></body></html>"""
 @app.get('/api/runs/{run_id}/evidence-bundle')
 def evidence_bundle(run_id:int, db:Session=Depends(get_db)):
     if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
-    return {'run_id':run_id,'product':'Zer0 - The Vanguard','report':audit.build_report(db,run_id),'timeline':timeline(run_id,db),'tasks':tasks(run_id,db)}
+    return {'run_id':run_id,'product':'Vanguard by Zer0','report':audit.build_report(db,run_id),'timeline':timeline(run_id,db),'tasks':tasks(run_id,db)}
 @app.get('/api/runs/{run_id}/attestation')
 def run_attestation(run_id:int, db:Session=Depends(get_db)):
     run=db.get(models.AuditRun,run_id)
     if not run: raise HTTPException(404,'run not found')
     asset=db.get(models.Asset,run.asset_id)
     approval=db.query(models.Approval).filter_by(run_id=run_id,status='approved').first()
-    return {'product':'Zer0 - The Vanguard','run_id':run.id,'target':asset.url if asset else '', 'domain_authorized':bool(asset and asset.authorized and approval),'scan_tier':(run.app_model or {}).get('scan_tier','legacy'),'methodology':['non_destructive','public_http_https_only','same_origin_crawl','headers_tls_common_files','no_credentials_no_dos_no_exfiltration'],'approval':{'status':approval.status if approval else 'missing','decided_by':approval.decided_by if approval else ''},'client_certificate_status':'internal_attestation_not_compliance_certificate','generated_for':'client_and_auditor_review'}
+    return {'product':'Vanguard by Zer0','run_id':run.id,'target':asset.url if asset else '', 'domain_authorized':bool(asset and asset.authorized and approval),'scan_tier':(run.app_model or {}).get('scan_tier','legacy'),'methodology':['non_destructive','public_http_https_only','same_origin_crawl','headers_tls_common_files','no_credentials_no_dos_no_exfiltration'],'approval':{'status':approval.status if approval else 'missing','decided_by':approval.decided_by if approval else ''},'client_certificate_status':'internal_attestation_not_compliance_certificate','generated_for':'client_and_auditor_review'}
 
 @app.get('/api/runs/{run_id}/timeline')
 def timeline(run_id:int, db:Session=Depends(get_db)):
@@ -127,6 +138,36 @@ def payment_intent(req:schemas.PaymentIntentRequest):
     validate_public_http_url(str(req.target_url))
     price=49 if req.scan_tier=='detailed' else 0
     return {'payment_required':price>0,'amount_usd':price,'currency':'usd','provider':'stub','payment_reference':f'zer0_stub_{abs(hash(str(req.target_url)))%1000000}','next_step':'Use this payment_reference in /api/bootstrap. Stripe checkout can replace this stub.'}
+
+
+@app.post('/api/payments/upi-qr')
+def upi_qr(req:schemas.AccessKeyRequest, db:Session=Depends(get_db)):
+    plan=req.plan if req.plan in {'vanguard','detailed'} else 'vanguard'
+    key='zer0_'+secrets.token_urlsafe(18).replace('-','').replace('_','')[:24]
+    row=models.AccessKey(key=key,plan=plan,status='pending',paid_via='upi')
+    db.add(row); db.commit(); db.refresh(row)
+    audit.log(db,0,0,'access_key.created',{'plan':plan,'paid_via':'upi','status':'pending'},actor='billing')
+    return {'status':row.status,'plan':row.plan,'access_key':row.key,'amount_inr':4999,'upi_id':'zer0@upi','qr_payload':f'upi://pay?pa=zer0@upi&pn=Vanguard%20by%20Zer0&am=4999&cu=INR&tn={row.key}','next_step':'Pay by UPI, then admin activates this key.'}
+
+@app.post('/api/admin/access-key/{key}/activate')
+def activate_access_key(key:str, req:schemas.ApprovalRequest=schemas.ApprovalRequest(decided_by='admin', reason='UPI received'), db:Session=Depends(get_db)):
+    row=db.query(models.AccessKey).filter_by(key=key).first()
+    if not row: raise HTTPException(404,'access key not found')
+    row.status='active'; row.activated_by=req.decided_by; row.activated_at=datetime.utcnow(); db.commit()
+    audit.log(db,0,0,'access_key.activated',{'key_suffix':key[-6:],'plan':row.plan,'reason':req.reason},actor=req.decided_by)
+    return {'access_key':row.key,'status':row.status,'plan':row.plan,'activated_by':row.activated_by}
+
+@app.post('/api/admin/access-key/{key}/revoke')
+def revoke_access_key(key:str, db:Session=Depends(get_db)):
+    row=db.query(models.AccessKey).filter_by(key=key).first()
+    if not row: raise HTTPException(404,'access key not found')
+    row.status='revoked'; db.commit(); audit.log(db,0,0,'access_key.revoked',{'key_suffix':key[-6:],'plan':row.plan},actor='admin')
+    return {'access_key':row.key,'status':row.status,'plan':row.plan}
+
+@app.get('/api/admin/access-keys')
+def list_access_keys(db:Session=Depends(get_db)):
+    rows=db.query(models.AccessKey).order_by(models.AccessKey.id.desc()).limit(100).all()
+    return {'access_keys':[{'id':r.id,'key_suffix':r.key[-6:],'plan':r.plan,'status':r.status,'paid_via':r.paid_via,'workspace_id':r.workspace_id,'activated_by':r.activated_by} for r in rows]}
 
 @app.get('/api/billing/plans')
 def billing_plans():
@@ -186,7 +227,7 @@ def program_summary(db:Session=Depends(get_db)):
     runs=db.query(models.AuditRun).all(); assets=db.query(models.Asset).all(); findings=db.query(models.Finding).all(); approvals=db.query(models.Approval).all(); tickets=db.query(models.RemediationTicket).all(); schedules=db.query(models.Schedule).all(); subs=db.query(models.BillingSubscription).all()
     sev={}
     for f in findings: sev[f.severity]=sev.get(f.severity,0)+1
-    return {'product':'Zer0 - The Vanguard','risk':{'findings_total':len(findings),'by_severity':sev,'open_remediation_tickets':sum(1 for t in tickets if t.status!='closed')},'operations':{'runs_total':len(runs),'runs_completed':sum(1 for r in runs if r.status in {'completed','browser_recon_complete','report_ready'}),'domains_total':len(assets),'domains_approved':sum(1 for a in assets if a.authorized),'pending_approvals':sum(1 for a in approvals if a.status=='pending'),'active_schedules':sum(1 for s in schedules if s.status=='active')},'commerce':{'subscriptions_total':len(subs),'active_vanguard':sum(1 for s in subs if s.status=='active' and s.plan=='vanguard'),'estimated_scan_revenue_usd':round(sum(r.cost_estimate_usd for r in runs),2)}}
+    return {'product':'Vanguard by Zer0','risk':{'findings_total':len(findings),'by_severity':sev,'open_remediation_tickets':sum(1 for t in tickets if t.status!='closed')},'operations':{'runs_total':len(runs),'runs_completed':sum(1 for r in runs if r.status in {'completed','browser_recon_complete','report_ready'}),'domains_total':len(assets),'domains_approved':sum(1 for a in assets if a.authorized),'pending_approvals':sum(1 for a in approvals if a.status=='pending'),'active_schedules':sum(1 for s in schedules if s.status=='active')},'commerce':{'subscriptions_total':len(subs),'active_vanguard':sum(1 for s in subs if s.status=='active' and s.plan=='vanguard'),'estimated_scan_revenue_usd':round(sum(r.cost_estimate_usd for r in runs),2)}}
 
 @app.get('/api/program/readiness')
 def program_readiness(db:Session=Depends(get_db)):
@@ -198,7 +239,7 @@ def program_readiness(db:Session=Depends(get_db)):
         {'name':'remediation','ready':db.query(models.RemediationTicket).first() is not None,'detail':'Findings can become remediation tickets.'},
         {'name':'recurring_schedules','ready':db.query(models.Schedule).first() is not None,'detail':'Recurring scan schedule objects exist and are subscription/domain gated.'},
     ]
-    return {'product':'Zer0 - The Vanguard','ready_score':round(sum(1 for c in checks if c['ready'])/len(checks)*100),'checks':checks}
+    return {'product':'Vanguard by Zer0','ready_score':round(sum(1 for c in checks if c['ready'])/len(checks)*100),'checks':checks}
 
 @app.get('/api/admin/schedules')
 def admin_schedules(db:Session=Depends(get_db)):

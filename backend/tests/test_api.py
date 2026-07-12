@@ -110,10 +110,10 @@ def test_remediation_ticket_generation_and_status():
     closed=client.post(f'/api/remediation-tickets/{tid}/status', json={'status':'closed'}); assert closed.status_code==200; assert closed.json()['ticket']['status']=='closed'
 
 def test_program_summary_endpoint():
-    summary=client.get('/api/program/summary'); assert summary.status_code==200; body=summary.json(); assert body['product']=='Zer0 - The Vanguard'; assert 'risk' in body and 'operations' in body and 'commerce' in body; assert body['operations']['domains_total'] >= body['operations']['domains_approved']
+    summary=client.get('/api/program/summary'); assert summary.status_code==200; body=summary.json(); assert body['product']=='Vanguard by Zer0'; assert 'risk' in body and 'operations' in body and 'commerce' in body; assert body['operations']['domains_total'] >= body['operations']['domains_approved']
 
 def test_launch_readiness_checklist():
-    r=client.get('/api/program/readiness'); assert r.status_code==200; body=r.json(); assert body['product']=='Zer0 - The Vanguard'; assert body['ready_score'] >= 0; names=[x['name'] for x in body['checks']]; assert 'domain_approval' in names and 'payment_gating' in names and 'report_exports' in names and 'audit_log' in names
+    r=client.get('/api/program/readiness'); assert r.status_code==200; body=r.json(); assert body['product']=='Vanguard by Zer0'; assert body['ready_score'] >= 0; names=[x['name'] for x in body['checks']]; assert 'domain_approval' in names and 'payment_gating' in names and 'report_exports' in names and 'audit_log' in names
 
 def test_admin_user_rbac_management():
     up=client.post('/api/admin/users', json={'workspace_id':42,'email':'analyst@zer0.local','role':'analyst'}); assert up.status_code==200; assert up.json()['user']['role']=='analyst'
@@ -124,7 +124,7 @@ def test_run_attestation_endpoint():
     r=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'AT','workspace_name':'AT','scan_tier':'free'}); run=r.json(); rid=run['run_id']
     client.post(f'/api/admin/domain-queue/{rid}/approve', json={'decided_by':'admin','reason':'owner verified'})
     client.post(f'/api/admin/domain-queue/{rid}/execute')
-    att=client.get(f'/api/runs/{rid}/attestation'); assert att.status_code==200; body=att.json(); assert body['product']=='Zer0 - The Vanguard'; assert body['domain_authorized'] is True; assert 'non_destructive' in body['methodology']; assert body['target']=='https://example.com/'
+    att=client.get(f'/api/runs/{rid}/attestation'); assert att.status_code==200; body=att.json(); assert body['product']=='Vanguard by Zer0'; assert body['domain_authorized'] is True; assert 'non_destructive' in body['methodology']; assert body['target']=='https://example.com/'
 
 def test_billing_webhook_activates_subscription():
     hook=client.post('/api/billing/webhook', json={'workspace_id':777,'event':'checkout.session.completed','plan':'vanguard','payment_reference':'stripe_stub_777'}); assert hook.status_code==200; assert hook.json()['subscription']['status']=='active'

@@ -13,9 +13,10 @@ function App(){
   async function api(path,options){const r=await fetch(API+path,options),j=await r.json().catch(()=>({detail:r.statusText}));if(!r.ok)throw new Error(j.detail||`HTTP ${r.status}`);return j}
   async function load(){try{setHealth(await api('/health'));setDash(await api('/api/dashboard'));setAdmin(await api('/api/admin/domain-queue'));setDomains(await api('/api/admin/domains'));setAuditLog(await api('/api/admin/audit-log'));setBilling(await api('/api/billing/plans'));setSchedules(await api('/api/admin/schedules'));setTickets(await api('/api/remediation-tickets'));setSummary(await api('/api/program/summary'));setReadiness(await api('/api/program/readiness'));setUsers(await api('/api/admin/users'));const m=await api('/api/intelligence/models');setIntelModels(m);setIntelMode(m.current)}catch(e){}}
   useEffect(()=>{load()},[]);
+  useEffect(()=>{ if(window.gtag) gtag('event','page_view',{page_path:'/'+view}); },[view]);
   function clearReport(){setReport(null);setTimeline(null);setTasks(null);setIntel(null);setEnterprise(null)}
   async function buyDetailed(){setBusy(true);setError('');try{const p=await api('/api/payments/intent',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({target_url:url,scan_tier:'detailed'})});setPayment(p.payment_reference);setTier('detailed')}catch(e){setError(e.message)}finally{setBusy(false)}}
-  async function start(){setBusy(true);setError('');clearReport();try{const j=await api('/api/bootstrap',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({target_url:url,client_name:'Vanguard Client',workspace_name:'Zer0 Security Program',budget_usd:tier==='detailed'?49:2.0,scan_tier:tier,payment_reference:payment})});setRun(j);setView('scans');await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
+  async function start(){setBusy(true);setError('');clearReport();try{const j=await api('/api/bootstrap',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({target_url:url,client_name:'Vanguard Client',workspace_name:'Vanguard Security Program',budget_usd:tier==='detailed'?49:2.0,scan_tier:tier,payment_reference:payment})});setRun(j);setView('scans');await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function openRun(r){const id=r.run_id||r.id;setBusy(true);setError('');setRun({run_id:id,workspace_id:r.workspace_id,asset_id:r.asset_id||0,status:r.status,stage:r.stage,progress:r.progress,app_model:r.app_model||{}});clearReport();try{if(['awaiting_approval','payment_required','queued'].includes(r.status)){if(r.workspace_id)setCostGov(await api(`/api/workspaces/${r.workspace_id}/cost-governor?run_id=${id}`));return;}const [rep,tl,tk,ai,ent,gov]=await Promise.all([api(`/api/runs/${id}/report`),api(`/api/runs/${id}/timeline`),api(`/api/runs/${id}/tasks`),api(`/api/runs/${id}/intelligence`),api(`/api/workspaces/${r.workspace_id}/enterprise`),api(`/api/workspaces/${r.workspace_id}/cost-governor?run_id=${id}`)]);setReport(rep);setTimeline(tl);setTasks(tk);setIntel(ai);setEnterprise(ent);setCostGov(gov);setView('report')}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function approve(){const active=run?.status==='awaiting_approval'?run:dash?.runs?.[0]?.status==='awaiting_approval'?dash.runs[0]:null;if(!active)return setError('Create a free audit or paid detailed scan first; admin approval unlocks testing.');const id=active.run_id||active.id;setBusy(true);setError('');try{await api(`/api/runs/${id}/approve`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decided_by:'admin',reason:'Domain ownership and testing scope approved.'})});const executed=await api(`/api/runs/${id}/execute`,{method:'POST'});setRun(executed);const br=await api(`/api/runs/${id}/browser-recon`,{method:'POST'});setRun({...executed,status:br.status,stage:br.stage,progress:br.progress});await api(`/api/workspaces/${active.workspace_id}/enterprise-program`,{method:'POST'});await load();await openRun({...executed,status:br.status,stage:br.stage,progress:br.progress})}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function approveQueueRun(x){setBusy(true);setError('');try{const approved=await api(`/api/admin/domain-queue/${x.run_id}/approve`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decided_by:'admin',reason:'Domain owner/admin approved from Vanguard queue.'})});setRun(approved);await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
@@ -33,13 +34,13 @@ function App(){
   return (
     <div className="app">
       <aside className="side">
-        <div className="brand"><div className="logo"><Shield size={20}/></div><div><b>Zer0</b><br/><small>The Vanguard</small></div></div>
+        <div className="brand"><div className="logo"><Shield size={20}/></div><div><b>Vanguard</b><br/><small>by Zer0</small></div></div>
         <nav className="nav">{nav.map(n=><button key={n.id} className={view===n.id?'active':''} onClick={()=>setView(n.id)}><n.icon size={17}/>{n.label}{n.badge?n.badge>0&&<span className="badge">{n.badge}</span>:null}</button>)}</nav>
         <div className="foot">A security agent for your company.</div>
       </aside>
       <div className="main">
         <div className="topbar">
-          <div className="title"><b>{nav.find(n=>n.id===view)?.label||'Console'}</b><p>Zer0 — The Vanguard · enterprise web exposure control plane</p></div>
+          <div className="title"><b>{nav.find(n=>n.id===view)?.label||'Console'}</b><p>Vanguard by Zer0 · enterprise web exposure control plane</p></div>
           <div className="spacer"/>
           <div className="health">
             <span className="chip"><span className={'dot '+(health?.provider?.openai?'ok':'')}/>OpenAI {health?.provider?.openai?'ready':'off'}</span>
@@ -76,8 +77,8 @@ function Overview({dash,summary,readiness,costGov,current,pendingRun,tier,setTie
   return <div className="view">
     <div className="hero">
       <span className="eyebrow">Enterprise web exposure management</span>
-      <h2>Audit a public domain with approvals, budget controls, and evidence.</h2>
-      <p>Start with a free high-level posture check. Detailed scans are payment-gated and require backend admin domain approval before any testing runs.</p>
+      <h2>Audit a public domain — approvals, budgets, evidence.</h2>
+      <p>Start free. Detailed scans are paid and admin-approved before any testing runs.</p>
       <div className="pricing">
         <button className={tier==='free'?'selected':''} onClick={()=>setTier('free')}><b>Free audit</b><span>Headers, TLS, public evidence</span></button>
         <button className={tier==='detailed'?'selected':''} onClick={buyDetailed}><b>Detailed scan · ${com.detailed_scan_price_usd||49}</b><span>Paid intent + admin domain approval</span></button>
