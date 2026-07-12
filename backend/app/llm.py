@@ -22,6 +22,6 @@ def generate_report_intelligence(db:Session, run_id:int, report:dict)->dict:
         for name,trig in seeds: db.add(models.Playbook(name=name,trigger=trig,steps={'safe':True,'requires_approval_for_active':True},confidence=0.7))
         db.commit(); playbooks=db.query(models.Playbook).limit(8).all()
     prompt='Generate concise security report intelligence from redacted evidence: '+redact(report)+' playbooks='+redact([{'id':p.id,'name':p.name,'trigger':p.trigger} for p in playbooks])
-    est=estimate_cost(prompt); audit.cost(db,run_id,'openai' if settings.openai_key_present else 'deterministic','report_intelligence',est['estimated_usd'],est['estimated_tokens'],{'one_call_budgeted':True})
+    est=estimate_cost(prompt); audit.cost(db,run_id,'gemini' if settings.gemini_key_present else ('openai' if settings.openai_key_present else 'deterministic'),'report_intelligence',est['estimated_usd'],est['estimated_tokens'],{'one_call_budgeted':True,'model':settings.gemini_model if settings.gemini_key_present else (settings.openai_model if settings.openai_key_present else 'deterministic')})
     # Live LLM disabled by default in Phase 3 path to protect hackathon budget; adapter + cost ledger are ready.
     return deterministic_intelligence(report, playbooks) | {'cost_estimate':est, 'redacted':True, 'one_call_per_deliverable':True}

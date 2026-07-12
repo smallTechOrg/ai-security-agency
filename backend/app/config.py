@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     agent_gemini_api_key: str = ""
     gemini_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-2.5-flash-lite"
     cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
     default_budget_usd: float = 2.0
     browser_recon_enabled: bool = True
