@@ -13,7 +13,7 @@ function App(){
   async function buyDetailed(){setBusy(true);setError('');try{const p=await api('/api/payments/intent',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({target_url:url,scan_tier:'detailed'})});setPayment(p.payment_reference);setTier('detailed')}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function start(){
     setBusy(true);setError('');clearReport();
-    try{const j=await api('/api/bootstrap',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({target_url:url,client_name:'Vanguard Client',workspace_name:'Zer0 Security Program',budget_usd:tier==='detailed'?49:0,scan_tier:tier,payment_reference:payment})});setRun(j);await load()}
+    try{const j=await api('/api/bootstrap',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({target_url:url,client_name:'Vanguard Client',workspace_name:'Zer0 Security Program',budget_usd:tier==='detailed'?49:2.0,scan_tier:tier,payment_reference:payment})});setRun(j);await load()}
     catch(e){setError(e.message)}finally{setBusy(false)}
   }
   async function openRun(r){

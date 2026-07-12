@@ -23,7 +23,7 @@ def bootstrap(req:schemas.BootstrapRequest, db:Session=Depends(get_db)):
     tier=req.scan_tier if req.scan_tier in {'free','detailed'} else 'free'
     paid=tier=='detailed' and bool(req.payment_reference.strip())
     client=models.Client(name=req.client_name); db.add(client); db.commit(); db.refresh(client)
-    effective_budget=max(req.budget_usd,49.0) if tier=='detailed' and paid else req.budget_usd
+    effective_budget=max(req.budget_usd,49.0) if tier=='detailed' and paid else (req.budget_usd if req.budget_usd>0 else settings.default_budget_usd)
     ws=models.Workspace(client_id=client.id,name=req.workspace_name,budget_usd=effective_budget); db.add(ws); db.commit(); db.refresh(ws)
     asset=models.Asset(workspace_id=ws.id,url=str(req.target_url),authorized=(tier=='free'),scope_note=req.scope_note); db.add(asset); db.commit(); db.refresh(asset)
     status='awaiting_approval' if tier=='free' else ('awaiting_approval' if paid else 'payment_required')
