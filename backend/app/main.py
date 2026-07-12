@@ -315,6 +315,86 @@ def upsert_user(req:schemas.UserUpsertRequest, db:Session=Depends(get_db)):
 def rbac_matrix():
     return {'roles':{'owner':['manage_org','manage_billing','approve_domains','run_scans','read_reports','read_audit_log'],'admin':['approve_domains','run_scans','read_reports','read_audit_log'],'approver':['approve_domains','read_reports'],'analyst':['run_scans','read_reports'],'viewer':['read_internal_dashboard'],'client_viewer':['read_approved_reports']},'enforced_surfaces':['client_reports','admin_domain_queue','billing','audit_log']}
 
+@app.get('/api/workspaces/{workspace_id}/credentials')
+def workspace_credentials(workspace_id:int, db:Session=Depends(get_db)):
+    rows=db.query(models.CredentialVaultStub).filter_by(workspace_id=workspace_id).order_by(models.CredentialVaultStub.id.desc()).all()
+    return {'credentials':[{'id':c.id,'label':c.label,'username':c.username,'secret_ref':c.secret_ref,'role_name':c.role_name,'allowed_use':c.allowed_use,'revoked':bool(c.revoked_at),'created_at':c.created_at.isoformat()} for c in rows]}
+
+@app.post('/api/workspaces/{workspace_id}/credentials')
+def add_workspace_credential(workspace_id:int, req:schemas.CredentialVaultRequest, db:Session=Depends(get_db)):
+    if not db.get(models.Workspace,workspace_id): raise HTTPException(404,'workspace not found')
+    secret_ref=req.secret_ref if req.secret_ref.startswith(('external-','secret://','vault://','gcp-secret://')) else 'external-secret-not-stored'
+    row=models.CredentialVaultStub(workspace_id=workspace_id,label=req.label,username=req.username,secret_ref=secret_ref,role_name=req.role_name,allowed_use=req.allowed_use)
+    db.add(row); db.commit(); audit.log(db,workspace_id,0,'credential.stub.created',{'credential_id':row.id,'role':row.role_name,'secret_ref':row.secret_ref},actor='admin')
+    return {'credential':{'id':row.id,'label':row.label,'username':row.username,'secret_ref':row.secret_ref,'role_name':row.role_name,'allowed_use':row.allowed_use}}
+
+@app.get('/api/workspaces/{workspace_id}/scope-rules')
+def workspace_scope_rules(workspace_id:int, db:Session=Depends(get_db)):
+    rows=db.query(models.ScopeRule).filter_by(workspace_id=workspace_id).order_by(models.ScopeRule.id.desc()).all()
+    return {'rules':[{'id':r.id,'include_pattern':r.include_pattern,'exclude_pattern':r.exclude_pattern,'test_level':r.test_level} for r in rows]}
+
+@app.post('/api/workspaces/{workspace_id}/scope-rules')
+def add_scope_rule(workspace_id:int, req:schemas.ScopeRuleRequest, db:Session=Depends(get_db)):
+    if not db.get(models.Workspace,workspace_id): raise HTTPException(404,'workspace not found')
+    row=models.ScopeRule(workspace_id=workspace_id,include_pattern=req.include_pattern,exclude_pattern=req.exclude_pattern,test_level=req.test_level)
+    db.add(row); db.commit(); audit.log(db,workspace_id,0,'scope.rule.created',{'rule_id':row.id,'test_level':row.test_level},actor='admin')
+    return {'rule':{'id':row.id,'include_pattern':row.include_pattern,'exclude_pattern':row.exclude_pattern,'test_level':row.test_level}}
+
+@app.get('/api/workspaces/{workspace_id}/auth-sessions')
+def workspace_auth_sessions(workspace_id:int, db:Session=Depends(get_db)):
+    rows=db.query(models.AuthSessionProfile).filter_by(workspace_id=workspace_id).order_by(models.AuthSessionProfile.id.desc()).all()
+    return {'sessions':[{'id':s.id,'workspace_id':s.workspace_id,'asset_id':s.asset_id,'credential_id':s.credential_id,'login_url':s.login_url,'success_indicator':s.success_indicator,'status':s.status,'last_verified_at':s.last_verified_at.isoformat() if s.last_verified_at else None} for s in rows]}
+
+@app.post('/api/workspaces/{workspace_id}/auth-sessions')
+def add_auth_session(workspace_id:int, req:schemas.AuthSessionRequest, db:Session=Depends(get_db)):
+    if not db.get(models.Workspace,workspace_id): raise HTTPException(404,'workspace not found')
+    cred=db.get(models.CredentialVaultStub,req.credential_id) if req.credential_id else db.query(models.CredentialVaultStub).filter_by(workspace_id=workspace_id).first()
+    if not cred or cred.workspace_id!=workspace_id: raise HTTPException(400,'credential stub required for this workspace')
+    asset=db.get(models.Asset,req.asset_id) if req.asset_id else db.query(models.Asset).filter_by(workspace_id=workspace_id).first()
+    if not asset or asset.workspace_id!=workspace_id: raise HTTPException(400,'asset required for this workspace')
+    row=models.AuthSessionProfile(workspace_id=workspace_id,asset_id=asset.id,credential_id=cred.id,login_url=req.login_url or asset.url,success_indicator=req.success_indicator,status=req.status)
+    db.add(row); db.commit(); audit.log(db,workspace_id,0,'auth.session.profile.created',{'session_id':row.id,'asset_id':asset.id,'credential_id':cred.id,'status':row.status},actor='admin')
+    return {'session':{'id':row.id,'workspace_id':row.workspace_id,'asset_id':row.asset_id,'credential_id':row.credential_id,'login_url':row.login_url,'success_indicator':row.success_indicator,'status':row.status}}
+
+@app.post('/api/runs/{run_id}/authenticated-form-test')
+def authenticated_form_test(run_id:int, req:schemas.AuthenticatedFormTestRequest, db:Session=Depends(get_db)):
+    run=db.get(models.AuditRun,run_id)
+    if not run: raise HTTPException(404,'run not found')
+    asset=db.get(models.Asset,run.asset_id)
+    if not asset or not asset.authorized: raise HTTPException(403,'domain admin approval required for authenticated testing')
+    if not req.dry_run: raise HTTPException(409,'live authenticated form submission is not enabled; use dry_run=true')
+    cred=db.get(models.CredentialVaultStub,req.credential_id) if req.credential_id else db.query(models.CredentialVaultStub).filter_by(workspace_id=run.workspace_id).first()
+    if not cred or cred.workspace_id!=run.workspace_id or cred.revoked_at: raise HTTPException(400,'active credential stub required')
+    sess=db.get(models.AuthSessionProfile,req.auth_session_id) if req.auth_session_id else db.query(models.AuthSessionProfile).filter_by(workspace_id=run.workspace_id,asset_id=asset.id,credential_id=cred.id).first()
+    if not sess or sess.workspace_id!=run.workspace_id or sess.asset_id!=asset.id: raise HTTPException(400,'auth session profile required')
+    rules=db.query(models.ScopeRule).filter_by(workspace_id=run.workspace_id).all()
+    if not rules:
+        rule=models.ScopeRule(workspace_id=run.workspace_id,include_pattern='/*',exclude_pattern='/logout,/delete,/billing',test_level='safe_forms_dry_run')
+        db.add(rule); db.commit(); rules=[rule]
+    browser_ev=db.query(models.Evidence).filter_by(run_id=run_id,kind='browser-recon').order_by(models.Evidence.id.desc()).first()
+    crawl_ev=db.query(models.Evidence).filter_by(run_id=run_id,kind='crawl').order_by(models.Evidence.id.desc()).first()
+    forms=((browser_ev.data or {}).get('model',{}).get('forms',[]) if browser_ev else []) or ((crawl_ev.data or {}).get('forms',[]) if crawl_ev else [])
+    excludes=[]
+    for rule in rules:
+        excludes += [x.strip() for x in (rule.exclude_pattern or '').split(',') if x.strip()]
+    reviewed=[]; blocked=[]
+    for idx,form in enumerate(forms):
+        action=form.get('action') or asset.url; method=(form.get('method') or 'GET').upper(); inputs=form.get('inputs') or []
+        reasons=[]
+        if any(x in action for x in excludes): reasons.append('excluded_by_scope')
+        if any(str(i).lower() in {'password','token','csrf','credit_card','card'} for i in inputs): reasons.append('sensitive_input_present')
+        if method not in {'GET','HEAD'}: reasons.append('state_changing_method')
+        item={'index':idx,'action':action,'method':method,'inputs':inputs,'dry_run_only':True,'decision':'blocked' if reasons else 'safe_to_render_only','reasons':reasons}
+        reviewed.append(item)
+        if reasons: blocked.append(item)
+    audit.task(db,run.id,'authenticated_form_testing',asset.url,status='completed',summary=f'Dry-run reviewed {len(reviewed)} authenticated forms; blocked {len(blocked)} from submission')
+    db.add(models.Approval(run_id=run.id,action='authenticated_form_testing',status='approved',reason=req.reason,decided_by=req.reviewer))
+    db.add(models.Evidence(run_id=run.id,kind='authenticated-form-test',title='Authenticated safe-form dry run',data={'credential_id':cred.id,'auth_session_id':sess.id,'session_status':sess.status,'scope_rules':[{'include':r.include_pattern,'exclude':r.exclude_pattern,'test_level':r.test_level} for r in rules],'forms_reviewed':reviewed,'blocked_forms':len(blocked),'dry_run':True,'no_live_submission':True}))
+    audit.cost(db,run.id,'deterministic','authenticated_form_test',0.0,detail={'forms_reviewed':len(reviewed),'blocked_forms':len(blocked)})
+    model=dict(run.app_model or {}); model['authenticated_testing']={'dry_run':True,'forms_reviewed':len(reviewed),'blocked_forms':len(blocked),'credential_role':cred.role_name}; run.app_model=model
+    db.commit(); audit.log(db,run.workspace_id,run.id,'authenticated_form_test.completed',{'forms_reviewed':len(reviewed),'blocked_forms':len(blocked),'credential_id':cred.id,'session_id':sess.id},actor='auth-test-agent')
+    return {'ok':True,'run_id':run.id,'forms_reviewed':len(reviewed),'blocked_forms':len(blocked),'credential':{'id':cred.id,'label':cred.label,'role_name':cred.role_name,'secret_ref':cred.secret_ref},'session':{'id':sess.id,'status':sess.status},'dry_run':True,'no_live_submission':True,'reviewed':reviewed}
+
 @app.get('/api/client/reports/{run_id}')
 def client_report(run_id:int, role:str='client_viewer', db:Session=Depends(get_db)):
     if role!='client_viewer': raise HTTPException(403,'client_viewer role required')

@@ -52,7 +52,7 @@ function App(){
 
   const newestRun=dash?.runs?.[0],pendingRun=run?.status==='awaiting_approval'?run:(newestRun?.status==='awaiting_approval'?newestRun:null),current=run||newestRun,findings=report?.findings||dash?.findings||[],commerce=dash?.commerce||{};
   const open=tickets?.tickets?.filter(t=>t.status!=='closed').length;
-  const nav=[{id:'overview',label:'Overview',icon:LayoutDashboard},{id:'scans',label:'Scans',icon:ScanLine,badge:dash?.runs?.length},{id:'mesh',label:'Agent mesh',icon:GitBranch,badge:agentMesh?.agent_status?.length},{id:'approvals',label:'Domain approvals',icon:ShieldCheck,badge:admin?.items?.filter(x=>x.status==='pending').length},{id:'domains',label:'Domain registry',icon:Radio},{id:'remediation',label:'Remediation',icon:ListChecks,badge:open},{id:'schedules',label:'Schedules',icon:CalendarClock},{id:'team',label:'Team & RBAC',icon:Users},{id:'billing',label:'Billing',icon:Receipt},{id:'audit',label:'Audit log',icon:ScrollText},{id:'readiness',label:'Launch readiness',icon:Wrench},{id:'repo',label:'Repo analysis',icon:Code2},{id:'keys',label:'Access keys',icon:KeyRound}];
+  const nav=[{id:'overview',label:'Overview',icon:LayoutDashboard},{id:'scans',label:'Scans',icon:ScanLine,badge:dash?.runs?.length},{id:'mesh',label:'Agent mesh',icon:GitBranch,badge:agentMesh?.agent_status?.length},{id:'authtest',label:'Auth testing',icon:LockKeyhole},{id:'approvals',label:'Domain approvals',icon:ShieldCheck,badge:admin?.items?.filter(x=>x.status==='pending').length},{id:'domains',label:'Domain registry',icon:Radio},{id:'remediation',label:'Remediation',icon:ListChecks,badge:open},{id:'schedules',label:'Schedules',icon:CalendarClock},{id:'team',label:'Team & RBAC',icon:Users},{id:'billing',label:'Billing',icon:Receipt},{id:'audit',label:'Audit log',icon:ScrollText},{id:'readiness',label:'Launch readiness',icon:Wrench},{id:'repo',label:'Repo analysis',icon:Code2},{id:'keys',label:'Access keys',icon:KeyRound}];
   const[repo,setRepo]=useState(null);
   const[intervention,setIntervention]=useState(null);
   async function resumeIntervention(){if(!intervention)return;setBusy(true);setError('');const id=intervention.run_id,wid=intervention.workspace_id;try{await api(`/api/runs/${id}/intervention/resume`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({solved:true,note:'human solved CAPTCHA/login, resumed'})});try{await api(`/api/runs/${id}/active-probe`,{method:'POST'})}catch(e){}setIntervention(null);await load();await openRun({run_id:id,workspace_id:wid,status:'completed'})}catch(e){setError(e.message)}finally{setBusy(false)}}
@@ -88,6 +88,7 @@ function App(){
           {view==='overview'&&<Overview dash={dash} summary={summary} readiness={readiness} costGov={costGov} current={current} pendingRun={pendingRun} tier={tier} setTier={setTier} url={url} setUrl={setUrl} start={start} buyDetailed={buyDetailed} approve={approve} billing={billing} busy={busy} payment={payment} intelModels={intelModels} intelMode={intelMode} pickIntelMode={pickIntelMode} upi={upi} setUpi={setUpi} mintUpi={mintUpi} upiKey={upiKey} setUpiKey={setUpiKey}/>}
           {view==='scans'&&<Scans dash={dash} run={run} openRun={openRun} current={current}/>}
           {view==='mesh'&&<AgentMesh mesh={agentMesh} run={run}/>} 
+          {view==='authtest'&&<AuthTesting current={current} setError={setError}/>} 
           {view==='approvals'&&<Approvals admin={admin} onApprove={approveQueueRun} onExecute={executeQueueRun}/>}
           {view==='domains'&&<Domains domains={domains} onRevoke={revokeDomain}/>}
           {view==='remediation'&&<Remediation tickets={tickets} onClose={closeTicket}/>}
@@ -107,7 +108,7 @@ function App(){
 
 function StatusBar({current}){if(!current)return null;return <div className="statusbar"><Activity size={18} color="#36d399"/><div><b>{current.status}</b><span> · {current.stage}</span></div><div className="prog"><progress max="100" value={current.progress||0}/></div><span>{current.progress||0}%</span></div>}
 function Pill({kind,children}){return <span className={'pill '+kind}>{children}</span>}
-function StatusPill({s}){const v=s||'unknown';const k={completed:'ok',browser_recon_complete:'ok',report_ready:'ok',approved:'ok',awaiting_approval:'warn',payment_required:'bad',queued:'info',domain_revoked:'bad',cancelled:'bad'}[v]||'mut';return <Pill kind={k}>{String(v).replace(/_/g,' ')}</Pill>}
+function StatusPill({s}){const v=s||'unknown';const k={completed:'ok',browser_recon_complete:'ok',report_ready:'ok',approved:'ok',human_verified:'ok',active:'ok',awaiting_approval:'warn',payment_required:'bad',queued:'info',needs_human_setup:'warn',domain_revoked:'bad',cancelled:'bad'}[v]||'mut';return <Pill kind={k}>{String(v).replace(/_/g,' ')}</Pill>}
 
 function Overview({dash,summary,readiness,costGov,current,pendingRun,tier,setTier,url,setUrl,start,buyDetailed,approve,billing,busy,payment,intelModels,intelMode,pickIntelMode,upi,setUpi,mintUpi,upiKey,setUpiKey}){
   const s=summary?.operations||{}, rev=summary?.commerce||{}, risk=summary?.risk||{}, com=dash?.commerce||{};
@@ -181,6 +182,27 @@ function AgentMesh({mesh,run}){
     <div className="panel"><h3>Agent handoffs</h3>{(mesh.handoffs||[]).map((h,i)=><div key={i} className="item"><div className="top"><b>{h.from} → {h.to}</b><Pill kind="info">{h.artifact}</Pill></div></div>)}</div>
     <div className="panel"><h3>Risk register</h3>{(mesh.risk_register||[]).map(r=><div key={r.risk_id} className="item"><div className="top"><b><span className={'sev '+r.severity}>{r.severity}</span>{r.title}</b><Pill kind="mut">{r.sla}</Pill></div><span className="meta">{r.risk_id} · owner {r.owner}</span></div>)}</div>
     <div className="cols2"><div className="panel"><h3>Compliance Mapper</h3><pre>{outputs.compliance?.control_map}</pre></div><div className="panel"><h3>Remediation Engineer</h3><pre>{outputs.remediation?.fixes}</pre></div></div>
+  </div>;
+}
+
+function AuthTesting({current,setError}){
+  const[busy,setBusy]=useState(false),[state,setState]=useState(null),[result,setResult]=useState(null);
+  const wid=current?.workspace_id, rid=current?.run_id||current?.id;
+  async function call(path,options){const r=await fetch(API+path,options),j=await r.json().catch(()=>({detail:r.statusText}));if(!r.ok)throw new Error(j.detail||`HTTP ${r.status}`);return j}
+  async function load(){if(!wid)return;const [creds,sessions,rules]=await Promise.all([call(`/api/workspaces/${wid}/credentials`),call(`/api/workspaces/${wid}/auth-sessions`),call(`/api/workspaces/${wid}/scope-rules`)]);setState({creds,sessions,rules})}
+  useEffect(()=>{load().catch(e=>setError(e.message))},[wid]);
+  async function seed(){if(!wid)return setError('Open a scan first.');setBusy(true);try{
+    const c=await call(`/api/workspaces/${wid}/credentials`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({label:'Vanguard managed test account',username:'security-admin@example.com',secret_ref:'external-secret-not-stored',role_name:'standard_user'})});
+    await call(`/api/workspaces/${wid}/scope-rules`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({include_pattern:'/*',exclude_pattern:'/logout,/delete,/billing,/settings/destructive',test_level:'safe_forms_dry_run'})});
+    await call(`/api/workspaces/${wid}/auth-sessions`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({credential_id:c.credential.id,status:'human_verified',success_indicator:'dashboard'})});
+    await load();
+  }catch(e){setError(e.message)}finally{setBusy(false)}}
+  async function runDry(){if(!rid)return setError('Open a completed scan first.');setBusy(true);setResult(null);try{const out=await call(`/api/runs/${rid}/authenticated-form-test`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({dry_run:true,reviewer:'admin',reason:'Authorized authenticated safe-form dry run.'})});setResult(out);await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
+  return <div className="view">
+    <div className="hero"><span className="eyebrow">Authenticated app testing workflow</span><h2>Prepare credential stubs, scope rules, and safe form dry-runs.</h2><p>Vanguard stores only external secret references, requires domain approval, and blocks live form submissions. This phase reviews authenticated forms without sending credentials or changing state.</p><div className="row"><button className="btn" disabled={busy||!wid} onClick={seed}>{busy?'Working…':'Seed credential + auth session'}</button><button className="btn ghost" disabled={busy||!rid} onClick={runDry}>Run safe form dry-run</button></div></div>
+    <div className="grid"><div className="card"><div className="ic"><KeyRound size={18}/></div><h3>Credential stubs</h3><b>{state?.creds?.credentials?.length||0}</b><p>No secrets stored</p></div><div className="card"><div className="ic"><LockKeyhole size={18}/></div><h3>Auth sessions</h3><b>{state?.sessions?.sessions?.length||0}</b><p>Human verified profiles</p></div><div className="card"><div className="ic"><ShieldCheck size={18}/></div><h3>Scope rules</h3><b>{state?.rules?.rules?.length||0}</b><p>Excludes destructive paths</p></div><div className="card good"><div className="ic"><ListChecks size={18}/></div><h3>Last dry-run</h3><b>{result?.forms_reviewed??0}</b><p>{result?`${result.blocked_forms} blocked · no live submit`:'Not run'}</p></div></div>
+    <div className="cols2"><div className="panel"><h3>Credentials</h3>{(state?.creds?.credentials||[]).map(c=><div key={c.id} className="item"><div className="top"><b>{c.label}</b><Pill kind="info">{c.role_name}</Pill></div><span className="meta">{c.username} · {c.secret_ref}</span></div>)}</div><div className="panel"><h3>Auth sessions</h3>{(state?.sessions?.sessions||[]).map(s=><div key={s.id} className="item"><div className="top"><b>session #{s.id}</b>{StatusPill(s.status)}</div><span className="meta">asset {s.asset_id} · credential {s.credential_id} · indicator {s.success_indicator}</span></div>)}</div></div>
+    {result&&<div className="panel"><h3>Safe form dry-run result <span className="pill ok">no live submission</span></h3>{result.reviewed.map(f=><div key={f.index} className="item"><div className="top"><b>{f.method} {f.action}</b><Pill kind={f.decision==='blocked'?'warn':'ok'}>{f.decision}</Pill></div><span className="sub">inputs: {(f.inputs||[]).join(', ')||'none'} · reasons: {(f.reasons||[]).join(', ')||'none'}</span></div>)}</div>}
   </div>;
 }
 

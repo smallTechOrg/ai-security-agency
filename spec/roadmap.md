@@ -13,3 +13,5 @@
 - Phase 2 browser-assisted recon scaffold: implemented via `/api/runs/{id}/browser-recon`, artifacts, task tracking, human-takeover detection indicators.
 - Phase 3 LLM/RAG/cost scaffold: implemented via `/api/runs/{id}/intelligence`, redaction, one-call cost ledger, deterministic fallback, seeded playbooks.
 - Phase 4-6 enterprise polish scaffold: implemented via credential vault stubs, schedules, enterprise readiness endpoint, compliance export placeholders.
+- Phase 4 authenticated testing workflow: implemented credential-stub APIs, scope-rule APIs, auth-session profiles, and a dry-run-only authenticated form test gate that blocks live submissions and stores evidence/audit logs.
+- Multi-agent control plane: implemented Supervisor, Threat Analyst, Red Team, Remediation Engineer, Compliance Mapper, Evidence QA, and Reporter mesh over completed scan evidence.

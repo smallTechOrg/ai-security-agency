@@ -36,6 +36,23 @@ curl -X POST http://127.0.0.1:8011/api/runs/<run_id>/agent-mesh
 
 The mesh uses configured OpenAI/Gemini providers when available and deterministic fallback otherwise; it does **not** loop indefinitely or intentionally burn credits.
 
+## Authenticated testing workflow
+
+Phase 4 adds safe authenticated-app preparation without storing secrets:
+
+- Credential stubs store username/role/allowed-use plus an external secret reference only.
+- Scope rules define included paths and destructive exclusions such as logout/delete/billing.
+- Auth-session profiles record a human-verified login state target.
+- Authenticated form testing is dry-run-only: forms are reviewed and classified, but Vanguard does not submit credentials or mutate state.
+
+API surfaces:
+
+```bash
+curl http://127.0.0.1:8011/api/workspaces/<workspace_id>/credentials
+curl http://127.0.0.1:8011/api/workspaces/<workspace_id>/auth-sessions
+curl -X POST http://127.0.0.1:8011/api/runs/<run_id>/authenticated-form-test
+```
+
 ## Safety boundary
 
 Only test targets you own or are authorized to test. Phase 1 performs passive/safe checks only: same-origin crawl, headers, TLS metadata, forms inventory, common public files, evidence capture, report generation. Destructive exploitation, data exfiltration, brute force, bypass, spam, and availability-impacting tests are policy-blocked.

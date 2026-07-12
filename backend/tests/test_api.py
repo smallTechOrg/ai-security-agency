@@ -147,6 +147,20 @@ def test_multi_agent_mesh_control_plane():
     assert len(body['risk_register']) >= 1
     bundle=client.get(f'/api/runs/{rid}/evidence-bundle'); assert bundle.status_code==200; assert bundle.json()['agent_mesh']['run_id']==rid
 
+def test_authenticated_testing_workflow_is_dry_run_and_secret_safe():
+    r=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'AUTH','workspace_name':'AUTH','scan_tier':'free'}); run=r.json(); rid=run['run_id']; wid=run['workspace_id']; aid=run['asset_id']
+    client.post(f'/api/admin/domain-queue/{rid}/approve', json={'decided_by':'admin','reason':'owner verified'})
+    cred=client.post(f'/api/workspaces/{wid}/credentials', json={'label':'Standard test user','username':'qa@example.com','secret_ref':'raw-password-should-not-store','role_name':'standard_user'}); assert cred.status_code==200
+    cid=cred.json()['credential']['id']; assert cred.json()['credential']['secret_ref']=='external-secret-not-stored'
+    rule=client.post(f'/api/workspaces/{wid}/scope-rules', json={'include_pattern':'/*','exclude_pattern':'/logout,/delete,/billing','test_level':'safe_forms_dry_run'}); assert rule.status_code==200
+    sess=client.post(f'/api/workspaces/{wid}/auth-sessions', json={'credential_id':cid,'asset_id':aid,'login_url':'https://example.com/login','success_indicator':'Example Domain','status':'human_verified'}); assert sess.status_code==200
+    blocked=client.post(f'/api/runs/{rid}/authenticated-form-test', json={'credential_id':cid,'auth_session_id':sess.json()['session']['id'],'dry_run':False}); assert blocked.status_code==409
+    dry=client.post(f'/api/runs/{rid}/authenticated-form-test', json={'credential_id':cid,'auth_session_id':sess.json()['session']['id'],'dry_run':True,'reviewer':'admin'}); assert dry.status_code==200; body=dry.json()
+    assert body['ok'] is True and body['dry_run'] is True and body['no_live_submission'] is True
+    assert body['credential']['secret_ref']=='external-secret-not-stored'
+    tasks=client.get(f'/api/runs/{rid}/tasks').json(); assert any(t['module']=='authenticated_form_testing' for t in tasks['tasks'])
+    sessions=client.get(f'/api/workspaces/{wid}/auth-sessions'); assert sessions.status_code==200; assert sessions.json()['sessions'][0]['status']=='human_verified'
+
 def test_billing_webhook_activates_subscription():
     hook=client.post('/api/billing/webhook', json={'workspace_id':777,'event':'checkout.session.completed','plan':'vanguard','payment_reference':'stripe_stub_777'}); assert hook.status_code==200; assert hook.json()['subscription']['status']=='active'
     status=client.get('/api/billing/status/777'); assert status.json()['subscription']['plan']=='vanguard'
