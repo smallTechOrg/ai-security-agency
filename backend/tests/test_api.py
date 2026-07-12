@@ -141,3 +141,21 @@ def test_intelligence_model_selector_endpoints():
     client.post(f'/api/admin/domain-queue/{rid}/approve', json={'decided_by':'admin','reason':'owner verified'})
     gov=client.get(f'/api/workspaces/{wid}/cost-governor?run_id={rid}'); assert gov.status_code==200; body=gov.json(); assert body['allowed'] is False; assert body['projected_run_cost_usd'] >= 0.04
     blocked=client.post(f'/api/admin/domain-queue/{rid}/execute'); assert blocked.status_code==402
+
+def test_repo_analyzer_deterministic_and_cost_free():
+    import tempfile, os
+    tmp=tempfile.mkdtemp(prefix='zer0_repotest_')
+    with open(os.path.join(tmp,'config.py'),'w') as fh:
+        fh.write("AWS_KEY='AKIAIOSFODNN7EXAMPLE'\np=subprocess.run('ls', shell=True)\n")
+    with open(os.path.join(tmp,'.gitignore'),'w') as fh:
+        fh.write('node_modules\n')
+    r=client.post('/api/repo/analyze', json={'repo_path':tmp,'deep':True,'workspace_id':0}); assert r.status_code==200
+    body=r.json()
+    assert body['cost_usd']==0.0
+    assert body['intelligence']['cost_usd']==0.0
+    assert body['files_scanned']>=1
+    rules=[f['rule'] for f in body['findings']]
+    assert any('AWS' in ru for ru in rules)
+    assert any('shell=True' in ru or 'shell' in ru for ru in rules)
+    import shutil; shutil.rmtree(tmp, ignore_errors=True)
+

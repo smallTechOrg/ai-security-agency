@@ -20,3 +20,8 @@ class BillingWebhookRequest(BaseModel):
     workspace_id:int; event:str='checkout.session.completed'; plan:str='vanguard'; payment_reference:str=''
 class IntelligenceModeRequest(BaseModel):
     mode:str='deterministic'
+class RepoAnalyzeRequest(BaseModel):
+    repo_path:str=''  # local checkout path (server-side) OR
+    repo_url:str=''   # public git URL to clone (safe, read-only)
+    deep:bool=False   # include insecure-code SAST patterns
+    workspace_id:int=0

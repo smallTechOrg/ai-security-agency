@@ -17,3 +17,6 @@ frontend:
 
 verify:
 	python scripts/verify.py
+
+deploy:
+	bash scripts/deploy.sh

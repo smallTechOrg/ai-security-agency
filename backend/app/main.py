@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+import os, subprocess
 from .config import settings
 from .db import SessionLocal, init_db, db_health
 from . import models, schemas, audit
@@ -251,6 +252,36 @@ def browser_recon_endpoint(run_id:int, db:Session=Depends(get_db)):
     if run.status=='awaiting_approval': raise HTTPException(409,'approval required')
     out=browser_recon.run_browser_recon(db,run_id)
     return {'run_id':out.id,'status':out.status,'stage':out.stage,'progress':out.progress,'app_model':out.app_model}
+
+@app.post('/api/repo/analyze')
+def repo_analyze(req:schemas.RepoAnalyzeRequest, db:Session=Depends(get_db)):
+    import tempfile, shutil
+    from . import repo_analyzer
+    target=req.repo_path.strip()
+    cleanup=None
+    if not target and req.repo_url.strip():
+        from urllib.parse import urlparse
+        if not (req.repo_url.startswith('http://') or req.repo_url.startswith('https://')):
+            raise HTTPException(400,'only public http(s) git URLs are allowed')
+        tmp=tempfile.mkdtemp(prefix='zer0_repo_'); cleanup=tmp
+        try:
+            subprocess.run(['git','clone','--depth','1',req.repo_url,tmp], capture_output=True, text=True, timeout=60, check=True)
+        except Exception as e:
+            raise HTTPException(400,f'clone failed: {type(e).__name__}')
+        target=tmp
+    elif not target:
+        raise HTTPException(400,'provide repo_path (local) or repo_url (public)')
+    if not os.path.isdir(target):
+        if cleanup: shutil.rmtree(cleanup, ignore_errors=True)
+        raise HTTPException(400,'repo path not found')
+    result=repo_analyzer.analyze_repo(target, deep=req.deep)
+    intel=repo_analyzer.enrich_with_intelligence(result)
+    result['intelligence']=intel
+    if req.workspace_id:
+        audit.log(db,req.workspace_id,0,'repo.analyzed',{'files':result['files_scanned'],'findings':len(result['findings']),'mode':intel['mode'],'cost_usd':intel['cost_usd']},actor='analyst')
+    if cleanup: shutil.rmtree(cleanup, ignore_errors=True)
+    return result
+
 @app.get('/api/runs/{run_id}/intelligence')
 def report_intelligence(run_id:int, db:Session=Depends(get_db)):
     if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
@@ -334,3 +365,23 @@ def enterprise_program(workspace_id:int, db:Session=Depends(get_db)):
 @app.post('/api/workspaces/{workspace_id}/demo-enterprise')
 def demo_enterprise(workspace_id:int, db:Session=Depends(get_db)):
     return enterprise_program(workspace_id,db)
+
+# --- SPA static hosting (single-origin deploy) ---
+import os
+from pathlib import Path as _Path
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+_DIST = _Path(os.environ.get('FRONTEND_DIST', str(_Path(__file__).resolve().parents[2] / 'frontend' / 'dist')))
+if _DIST.is_dir():
+    _assets = _DIST / 'assets'
+    if _assets.is_dir():
+        app.mount('/assets', StaticFiles(directory=str(_assets)), name='assets')
+    @app.get('/', include_in_schema=False)
+    def _spa_root():
+        return FileResponse(str(_DIST / 'index.html'))
+    @app.get('/{full_path:path}', include_in_schema=False)
+    def _spa_catchall(full_path: str):
+        candidate = _DIST / full_path
+        if candidate.is_file():
+            return FileResponse(str(candidate))
+        return FileResponse(str(_DIST / 'index.html'))
