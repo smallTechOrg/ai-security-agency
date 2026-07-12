@@ -259,9 +259,22 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
   return <div className="view"><div className="report">
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h2><FileText/> Vanguard security report</h2><button className="btn ghost" onClick={onClose}>← Back to scans</button></div>
     <div className="actions"><a href={`${API}/api/runs/${report.run_id}/report.html`} target="_blank">Open HTML report</a><a href={`${API}/api/runs/${report.run_id}/evidence-bundle`} target="_blank">Evidence JSON</a><a href={`${API}/api/client/reports/${report.run_id}`} target="_blank">Client-safe</a><a href={`${API}/api/runs/${report.run_id}/attestation`} target="_blank">Attestation</a></div>
-    <div className="score">Security score <b>{report.security_score}</b>/100 · {report.certificate_status}</div>
-    <p>{report.executive_summary}</p>
+    {(()=>{const sc=report.security_score,col=sc>=80?'#36d399':sc>=50?'#f7b955':'#ff5c7c',rb=report.detailed_depth?.risk_breakdown;return <div style={{display:'flex',gap:20,alignItems:'center',marginTop:14,padding:20,borderRadius:18,border:`1px solid ${col}55`,background:`linear-gradient(120deg, ${col}18, transparent)`}}>
+      <div style={{flexShrink:0,width:96,height:96,borderRadius:'50%',display:'grid',placeItems:'center',border:`4px solid ${col}`,background:`${col}12`}}><div style={{textAlign:'center'}}><div style={{fontSize:30,fontWeight:800,lineHeight:1,color:col}}>{sc}</div><div style={{fontSize:10,opacity:0.6}}>/100</div></div></div>
+      <div style={{flex:1}}>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>
+          <span className="pill" style={{background:`${col}22`,color:col,border:`1px solid ${col}55`}}>{sc>=80?'LOW RISK':sc>=50?'MODERATE RISK':'ELEVATED RISK'}</span>
+          {rb&&<span className="pill mut">{rb.total} findings · {Object.entries(rb.by_severity||{}).map(([k,v])=>`${v} ${k}`).join(' · ')}</span>}
+          <span className="pill info">{report.scan_tier==='detailed'?'Detailed':'Free'} scan</span>
+        </div>
+        <p style={{margin:0,lineHeight:1.6,fontSize:15}}>{report.executive_summary}</p>
+      </div>
+    </div>;})()}
     {costGov&&<div className="hint">Cost governor: {costGov.allowed?'within budget':'over budget'} · remaining ${costGov.remaining_usd} · projected ${costGov.projected_run_cost_usd}</div>}
+    {report.deep_analysis&&<div className="panel" style={{marginTop:16,border:'1px solid #7c5cff',background:'linear-gradient(180deg,rgba(124,92,255,0.10),transparent)'}}>
+      <h3><Brain size={16}/> Deep analysis <span className={'pill '+(report.deep_analysis.llm_backed?'info':'mut')}>{report.deep_analysis.llm_backed?`senior-pentester LLM · ${report.deep_analysis.source}`:'deterministic'}</span></h3>
+      <pre style={{marginTop:8,whiteSpace:'pre-wrap',lineHeight:1.6,background:'#0d1b2f',padding:14,borderRadius:12,border:'1px solid #263d5b',fontFamily:'inherit'}}>{report.deep_analysis.findings_text}</pre>
+    </div>}
     {report.active_probe&&<div className="panel" style={{marginTop:16,border:'1px solid #ff5c7c',background:'linear-gradient(180deg,rgba(255,92,124,0.09),transparent)'}}>
       <h3><ScanLine size={16}/> Penetration test — active probes <span className="pill bad">{report.active_probe.findings} issues</span><span className="pill mut">{report.active_probe.checks_run} checks · non-destructive</span></h3>
       <div style={{marginTop:8}}>{(report.active_probe.checks||[]).map((c,i)=><div key={i} className="item" style={{borderLeft:'2px solid '+(c.issue_found?'#ff5c7c':'#36d399')}}><div className="top"><b>{c.issue_found?'⚠️':'✓'} {c.check}</b><span className={'pill '+(c.issue_found?'bad':'ok')}>{c.issue_found?c.severity:'pass'}</span></div>{c.title&&<span className="sub">{c.title}</span>}</div>)}</div>

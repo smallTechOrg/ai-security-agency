@@ -110,6 +110,44 @@ def remediation_agent(target, findings, app_model, db=None, run_id=None) -> dict
             'fixes': deterministic}
 
 
+DEEP_SYSTEM = (
+    "You are a senior penetration tester doing a deep manual review. You are given the REAL captured "
+    "data from an authorized assessment (response headers, cookies, the API/XHR endpoints the site calls, "
+    "detected tech, forms, and exposed paths). Identify SPECIFIC, non-generic security issues and concrete "
+    "attack ideas grounded in THIS data — call out exact endpoints, headers, or params. Prioritize the "
+    "highest-impact items (auth, API access control, injection, secrets, IDOR). 4-7 short bullet points. "
+    "Do not restate generic best practices; be specific to what you see. No exploit code."
+)
+
+
+def deep_analysis_agent(target, context, db=None, run_id=None) -> dict:
+    """LLM deep-dive over the real captured evidence — finds site-specific issues a checklist misses."""
+    import json as _json
+    ctx = _json.dumps(context, default=str)[:9000]
+    deterministic = ('Deep analysis requires a live model; review the captured endpoints and headers manually. '
+                     'Focus on any API returning data without auth, permissive CORS, and exposed docs.')
+    try:
+        prompt = f'{DEEP_SYSTEM}\n\nTarget: {target}\nCAPTURED DATA:\n{ctx}\n\nGive your deep findings now.'
+        chain = _provider_chain()
+        out = entry = None
+        if db is not None:
+            from . import observability
+            out, entry = observability.call_with_trace(db, run_id, 'Deep Analysis', prompt, chain)
+        else:
+            from . import llm
+            for m, e in chain:
+                r = llm.live_intelligence(prompt, m, e)
+                if r and r.get('summary'):
+                    out, entry = r, e; break
+        if out and out.get('summary'):
+            return {'agent': 'Deep Analysis', 'llm_backed': True, 'source': f'ai:{entry.get("provider")}',
+                    'model': entry.get('model'), 'findings_text': out['summary'].strip()}
+    except Exception:
+        pass
+    return {'agent': 'Deep Analysis', 'llm_backed': False, 'source': 'deterministic', 'model': None,
+            'findings_text': deterministic}
+
+
 REDTEAM_SYSTEM = (
     "You are the Red Team agent. Think like an attacker: from the given findings, describe the most "
     "plausible ATTACK CHAIN — how an adversary would combine these weaknesses step by step to reach a "

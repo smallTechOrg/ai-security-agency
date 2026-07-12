@@ -168,10 +168,21 @@ def build_report(db:Session, run_id:int)->dict:
     agent_loop['llm_agents']=sum(1 for a in (analyst,redteam,reporter,remediation) if a and a.get('llm_backed'))
     agent_loop['multi_agent']=agent_loop['llm_agents']>=2
     # Accumulating agent memory (short + long term).
+    # Deep Analysis agent: feed the REAL captured evidence to an LLM for site-specific findings (cached).
+    deep_ev=next((e for e in evidence if e.kind=='deep-analysis'),None)
+    if deep_ev is None and findings:
+        _headers=next((e.data.get('headers',{}) for e in evidence if e.kind=='headers'),{})
+        _bmodel=(browser_ev.data or {}).get('model',{}) if browser_ev else {}
+        _ctx={'headers':_headers,'cookies':_bmodel.get('cookies',[]),'apis_observed':[n.get('url') for n in _bmodel.get('network_sample',[])][:20],'api_discovered':(api_security or {}).get('discovered',[]),'tech':(run.app_model or {}).get('tech_hints',{}),'forms':_bmodel.get('forms',[])[:8],'scripts':_bmodel.get('scripts',[])[:15],'exposed_files':next((e.data.get('files',[]) for e in evidence if e.kind=='common-files'),[]),'current_findings':[f.title for f in findings]}
+        from . import agents as _agd
+        deep_analysis=_agd.deep_analysis_agent(asset.url,_ctx,db=db,run_id=run_id)
+        db.add(models.Evidence(run_id=run_id,kind='deep-analysis',title='Deep Analysis sub-agent',data=deep_analysis)); db.commit()
+    else:
+        deep_analysis=deep_ev.data if deep_ev else None
     from . import memory as _mem
     _mem.record_for_run(db,run,asset,findings)
     memory=_mem.summary_for_run(db,run,asset)
     from . import observability as _obs
     observability=_obs.for_run(db,run_id)
     exec_summary=(detailed_depth.get('executive_narrative') if detailed_depth else None) or f'Safe baseline audit completed for {asset.url}. {len(findings)} findings require reviewer validation before client delivery.'
-    return {'run_id':run_id,'target':asset.url,'status':run.status,'scan_tier':tier,'security_score':score,'certificate_status':'review-required' if findings else 'baseline-pass-review-required','executive_summary':exec_summary,'app_model':run.app_model,'browser':browser,'detailed_depth':detailed_depth,'active_probe':active_probe,'api_security':api_security,'agent_loop':agent_loop,'reporter':reporter,'analyst':analyst,'redteam':redteam,'remediation':remediation,'memory':memory,'observability':observability,'findings':[{'severity':f.severity,'title':f.title,'description':f.description,'evidence':f.evidence,'remediation':f.remediation,'compliance':f.compliance} for f in findings],'evidence_count':len(evidence),'cost_estimate_usd':run.cost_estimate_usd,'next_steps':['Reviewer validates findings','Approve authenticated/deeper testing if in scope','Retest after remediation']}
+    return {'run_id':run_id,'target':asset.url,'status':run.status,'scan_tier':tier,'security_score':score,'certificate_status':'review-required' if findings else 'baseline-pass-review-required','executive_summary':exec_summary,'app_model':run.app_model,'browser':browser,'detailed_depth':detailed_depth,'active_probe':active_probe,'api_security':api_security,'agent_loop':agent_loop,'reporter':reporter,'analyst':analyst,'redteam':redteam,'remediation':remediation,'deep_analysis':deep_analysis,'memory':memory,'observability':observability,'findings':[{'severity':f.severity,'title':f.title,'description':f.description,'evidence':f.evidence,'remediation':f.remediation,'compliance':f.compliance} for f in findings],'evidence_count':len(evidence),'cost_estimate_usd':run.cost_estimate_usd,'next_steps':['Reviewer validates findings','Approve authenticated/deeper testing if in scope','Retest after remediation']}
