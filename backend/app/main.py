@@ -28,7 +28,7 @@ def bootstrap(req:schemas.BootstrapRequest, db:Session=Depends(get_db)):
         key_row=db.query(models.AccessKey).filter_by(key=req.access_key.strip()).first()
         if not key_row or key_row.status!='active':
             raise HTTPException(402,'valid activated access key required for detailed scan')
-    paid = bool(req.payment_reference.strip()) or (key_row is not None)
+    paid = bool(req.payment_reference.strip()) or (key_row is not None) or (tier=='detailed' and settings.demo_unlock_detailed)
     client=models.Client(name=req.client_name); db.add(client); db.commit(); db.refresh(client)
     effective_budget=max(req.budget_usd,49.0) if tier=='detailed' and paid else (req.budget_usd if req.budget_usd>0 else settings.default_budget_usd)
     ws=models.Workspace(client_id=client.id,name=req.workspace_name,budget_usd=effective_budget); db.add(ws); db.commit(); db.refresh(ws)

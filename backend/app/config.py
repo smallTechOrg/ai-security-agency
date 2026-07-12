@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     upi_id: str = ""  # UPI handle for QR payments, e.g. yourname@bank
     cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
     default_budget_usd: float = 2.0
+    demo_unlock_detailed: bool = True  # DEMO: detailed scans run without payment; set False to re-enable gating
     browser_recon_enabled: bool = True
     browser_headless: bool = True
     browser_timeout_ms: int = 15000
