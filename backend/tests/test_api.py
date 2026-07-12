@@ -164,6 +164,27 @@ def test_multi_agent_mesh_control_plane():
     assert len(body['risk_register']) >= 1
     bundle=client.get(f'/api/runs/{rid}/evidence-bundle'); assert bundle.status_code==200; assert bundle.json()['agent_mesh']['run_id']==rid
 
+def test_attack_surface_graph_maps_evidence_and_findings():
+    r=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'AS','workspace_name':'AS','scan_tier':'free'}); run=r.json(); rid=run['run_id']
+    client.post(f'/api/admin/domain-queue/{rid}/approve', json={'decided_by':'admin','reason':'owner verified'})
+    from app.db import SessionLocal
+    from app import models
+    db=SessionLocal()
+    try:
+        db.add(models.Evidence(run_id=rid,kind='crawl',title='crawl',data={'pages':['https://example.com/'], 'forms':[{'action':'https://example.com/login','method':'POST','inputs':['email','password'],'has_password':True}]}))
+        db.add(models.Evidence(run_id=rid,kind='api-security',title='api',data={'endpoints':[{'url':'https://example.com/api/me','method':'GET','issue_count':1}], 'discovered':[{'path':'/openapi.json','severity':'High','label':'OpenAPI'}], 'issues':2, 'discovered_count':1}))
+        db.add(models.Finding(run_id=rid,severity='High',title='API exposes data',description='api issue',evidence='GET /api/me',remediation='auth',compliance={'OWASP-API':'API1'}))
+        db.commit()
+    finally:
+        db.close()
+    graph=client.get(f'/api/runs/{rid}/attack-surface'); assert graph.status_code==200; body=graph.json()
+    assert body['summary']['nodes'] >= 5
+    assert body['summary']['apis'] >= 2
+    assert body['summary']['forms'] == 1
+    assert body['summary']['hotspots'] >= 1
+    assert any(p['name']=='API inventory pressure' for p in body['attack_paths'])
+    bundle=client.get(f'/api/runs/{rid}/evidence-bundle'); assert bundle.status_code==200; assert bundle.json()['attack_surface']['run_id']==rid
+
 def test_authenticated_testing_workflow_is_dry_run_and_secret_safe():
     r=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'AUTH','workspace_name':'AUTH','scan_tier':'free'}); run=r.json(); rid=run['run_id']; wid=run['workspace_id']; aid=run['asset_id']
     client.post(f'/api/admin/domain-queue/{rid}/approve', json={'decided_by':'admin','reason':'owner verified'})

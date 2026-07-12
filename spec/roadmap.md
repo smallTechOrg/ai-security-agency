@@ -16,3 +16,4 @@
 - Phase 4 authenticated testing workflow: implemented credential-stub APIs, scope-rule APIs, auth-session profiles, and a dry-run-only authenticated form test gate that blocks live submissions and stores evidence/audit logs.
 - Multi-agent control plane: implemented Supervisor, Threat Analyst, Red Team, Remediation Engineer, Compliance Mapper, Evidence QA, and Reporter mesh over completed scan evidence.
 - Phase 5 remediation retests: implemented ticket-to-retest validation runs with non-destructive evidence packages, task/cost/audit trail, and UI actions from the remediation queue.
+- Attack surface graph: implemented run-level graph that maps assets, pages, forms, APIs, findings, hotspots, and attack paths into the report cockpit and evidence bundle.

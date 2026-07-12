@@ -63,6 +63,14 @@ curl -X POST http://127.0.0.1:8011/api/remediation-tickets/<ticket_id>/retest \
   -d '{"outcome":"ready_for_retest","reviewer":"analyst"}'
 ```
 
+## Attack surface graph
+
+Each completed run can produce a graph view that connects the approved asset to crawled pages, rendered forms, observed/discovered APIs, findings, hotspots, and likely attack paths. This powers the report cockpit and evidence bundle.
+
+```bash
+curl http://127.0.0.1:8011/api/runs/<run_id>/attack-surface
+```
+
 ## Safety boundary
 
 Only test targets you own or are authorized to test. Phase 1 performs passive/safe checks only: same-origin crawl, headers, TLS metadata, forms inventory, common public files, evidence capture, report generation. Destructive exploitation, data exfiltration, brute force, bypass, spam, and availability-impacting tests are policy-blocked.

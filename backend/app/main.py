@@ -110,6 +110,53 @@ def get_agent_mesh(run_id:int, db:Session=Depends(get_db)):
     if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
     from . import orchestrator
     return orchestrator.run_mesh(db,run_id)
+def build_attack_surface(db:Session, run_id:int):
+    run=db.get(models.AuditRun,run_id)
+    if not run: raise HTTPException(404,'run not found')
+    asset=db.get(models.Asset,run.asset_id)
+    evidence=db.query(models.Evidence).filter_by(run_id=run_id).all()
+    findings=db.query(models.Finding).filter_by(run_id=run_id).all()
+    ev={e.kind:e.data for e in evidence}
+    crawl=ev.get('crawl') or {}; browser=(ev.get('browser-recon') or {}).get('model',{}); api=ev.get('api-security') or {}; active=ev.get('active-probe') or {}
+    nodes=[]; edges=[]
+    def add_node(i,label,kind,risk='info',meta=None):
+        if not any(n['id']==i for n in nodes): nodes.append({'id':i,'label':label,'kind':kind,'risk':risk,'meta':meta or {}})
+    def add_edge(a,b,kind,meta=None): edges.append({'from':a,'to':b,'kind':kind,'meta':meta or {}})
+    root='asset:root'; add_node(root,asset.url if asset else f'run {run_id}','asset','info',{'authorized':bool(asset and asset.authorized)})
+    pages=(crawl.get('pages') or [])[:30]
+    for idx,page in enumerate(pages):
+        pid=f'page:{idx}'; add_node(pid,page,'page','info'); add_edge(root,pid,'discovers')
+    for idx,form in enumerate((browser.get('forms') or crawl.get('forms') or [])[:25]):
+        fid=f'form:{idx}'; action=form.get('action') or 'same-page'; method=form.get('method','GET')
+        risk='warn' if method.upper() not in {'GET','HEAD'} or form.get('has_password') else 'info'
+        add_node(fid,action,'form',risk,{'method':method,'inputs':form.get('inputs',[]),'has_password':form.get('has_password',False)})
+        add_edge(root,fid,'contains_form')
+    for idx,endpoint in enumerate((api.get('endpoints') or [])[:25]):
+        eid=f'api:{idx}'; add_node(eid,endpoint.get('url','api'),'api','bad' if endpoint.get('issue_count',0)>0 else 'info',endpoint); add_edge(root,eid,'calls_api')
+    for idx,disc in enumerate((api.get('discovered') or [])[:25]):
+        did=f'discovered-api:{idx}'; add_node(did,disc.get('path','api-docs'),'api-discovery','bad' if disc.get('severity') in {'Critical','High'} else 'warn',disc); add_edge(root,did,'exposes')
+    sev_risk={'Critical':'bad','High':'bad','Medium':'warn','Low':'info'}
+    for idx,f in enumerate(findings[:60]):
+        fid=f'finding:{f.id}'; add_node(fid,f.title,'finding',sev_risk.get(f.severity,'info'),{'severity':f.severity,'compliance':f.compliance or {},'remediation':f.remediation})
+        target=root
+        low=(f.title+' '+f.description).lower()
+        if 'api' in low and any(n['kind'].startswith('api') for n in nodes): target=next(n['id'] for n in nodes if n['kind'].startswith('api'))
+        elif 'form' in low and any(n['kind']=='form' for n in nodes): target=next(n['id'] for n in nodes if n['kind']=='form')
+        add_edge(target,fid,'has_finding',{'severity':f.severity})
+    sev={}
+    for f in findings: sev[f.severity]=sev.get(f.severity,0)+1
+    hot=[n for n in nodes if n['risk']=='bad'][:8]
+    attack_paths=[]
+    if sev.get('Critical') or sev.get('High'):
+        attack_paths.append({'name':'High-impact exposure chain','steps':['Public asset discovered','Weakness confirmed in evidence','Remediation ticket/retest required'],'priority':'High'})
+    if browser.get('spa_gap',{}).get('surface_revealed'):
+        attack_paths.append({'name':'Client-rendered hidden surface','steps':['HTTP baseline misses JS surface','Browser recon reveals links/forms/API calls','Authenticated dry-run recommended'],'priority':'Medium'})
+    if api.get('issues') or api.get('discovered_count'):
+        attack_paths.append({'name':'API inventory pressure','steps':['Browser/API discovery finds endpoint','Misconfiguration or exposed docs confirmed','Restrict or authenticate endpoint'],'priority':'High' if api.get('issues') else 'Medium'})
+    return {'run_id':run_id,'target':asset.url if asset else '', 'summary':{'nodes':len(nodes),'edges':len(edges),'findings':len(findings),'by_severity':sev,'forms':sum(1 for n in nodes if n['kind']=='form'),'apis':sum(1 for n in nodes if n['kind'].startswith('api')),'hotspots':len(hot)},'nodes':nodes,'edges':edges,'hotspots':hot,'attack_paths':attack_paths,'coverage':{'crawl_pages':len(crawl.get('pages') or []),'browser_links':len(browser.get('links') or []),'browser_forms':len(browser.get('forms') or []),'api_endpoints':len(api.get('endpoints') or []),'active_probe_checks':active.get('checks_run',0)}}
+@app.get('/api/runs/{run_id}/attack-surface')
+def attack_surface(run_id:int, db:Session=Depends(get_db)):
+    return build_attack_surface(db,run_id)
 @app.api_route('/api/runs/{run_id}/report.html', methods=['GET','HEAD'], response_class=HTMLResponse)
 def report_html(run_id:int, db:Session=Depends(get_db)):
     rep=report(run_id,db); findings=''.join([f"<li><b>{f['severity']}: {f['title']}</b><p>{f['description']}</p><small>{f['remediation']}</small></li>" for f in rep['findings']])
@@ -121,7 +168,7 @@ def report_html(run_id:int, db:Session=Depends(get_db)):
 @app.get('/api/runs/{run_id}/evidence-bundle')
 def evidence_bundle(run_id:int, db:Session=Depends(get_db)):
     if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
-    return {'run_id':run_id,'product':'Vanguard by Zer0','report':audit.build_report(db,run_id),'timeline':timeline(run_id,db),'tasks':tasks(run_id,db),'agent_mesh':get_agent_mesh(run_id,db)}
+    return {'run_id':run_id,'product':'Vanguard by Zer0','report':audit.build_report(db,run_id),'timeline':timeline(run_id,db),'tasks':tasks(run_id,db),'agent_mesh':get_agent_mesh(run_id,db),'attack_surface':build_attack_surface(db,run_id)}
 @app.get('/api/runs/{run_id}/attestation')
 def run_attestation(run_id:int, db:Session=Depends(get_db)):
     run=db.get(models.AuditRun,run_id)
