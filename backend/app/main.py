@@ -157,6 +157,38 @@ def build_attack_surface(db:Session, run_id:int):
 @app.get('/api/runs/{run_id}/attack-surface')
 def attack_surface(run_id:int, db:Session=Depends(get_db)):
     return build_attack_surface(db,run_id)
+
+def build_executive_pack(db:Session, run_id:int):
+    rep=audit.build_report(db,run_id)
+    surface=build_attack_surface(db,run_id)
+    tickets=remediation_tickets(db)['tickets']
+    run_tickets=[t for t in tickets if any(f.get('title')==t.get('title') for f in rep.get('findings',[]))]
+    controls={}
+    for finding in rep.get('findings',[]):
+        for k,v in (finding.get('compliance') or {}).items():
+            controls.setdefault(k,{}).setdefault(str(v),0); controls[k][str(v)]+=1
+    top_risks=sorted(rep.get('findings',[]), key=lambda f:{'Critical':0,'High':1,'Medium':2,'Low':3}.get(f.get('severity'),9))[:5]
+    score=rep.get('security_score',0)
+    posture='board-escalation' if score<50 or any(f.get('severity') in {'Critical','High'} for f in rep.get('findings',[])) else ('managed-risk' if score<80 else 'strong-baseline')
+    roadmap=[]
+    if top_risks:
+        roadmap.append({'phase':'0-7 days','goal':'Eliminate high-impact exposures','items':[{'title':f['title'],'severity':f['severity'],'owner':'web-platform-team'} for f in top_risks if f.get('severity') in {'Critical','High'}] or [{'title':top_risks[0]['title'],'severity':top_risks[0]['severity'],'owner':'web-platform-team'}]})
+    roadmap.append({'phase':'7-30 days','goal':'Harden browser/API baseline','items':['CSP/HSTS/clickjacking headers','API docs and unauthenticated endpoint review','Retest closed tickets']})
+    roadmap.append({'phase':'30-90 days','goal':'Operationalize continuous exposure control','items':['Recurring scans for approved domains','Auth-session dry-run coverage','Compliance evidence bundle review']})
+    return {'product':'Vanguard by Zer0','run_id':run_id,'target':rep.get('target'),'posture':posture,'security_score':score,'certificate_status':rep.get('certificate_status'),'executive_summary':rep.get('executive_summary'),'kpis':{'findings':len(rep.get('findings',[])),'hotspots':surface['summary']['hotspots'],'attack_paths':len(surface['attack_paths']),'open_tickets':sum(1 for t in run_tickets if t.get('status')!='closed'),'retested':sum(1 for t in run_tickets if str(t.get('status','')).startswith('retest_')),'llm_calls':(rep.get('observability') or {}).get('llm_calls',0)},'top_risks':top_risks,'attack_paths':surface['attack_paths'],'compliance_controls':controls,'remediation_roadmap':roadmap,'exports':['report.html','evidence-bundle','client-safe-report','attestation','executive-pack.html'],'assurance':{'domain_authorized':run_attestation(run_id,db)['domain_authorized'],'non_destructive':True,'secrets_stored':False,'approval_required_for_deep_testing':True}}
+
+@app.get('/api/runs/{run_id}/executive-pack')
+def executive_pack(run_id:int, db:Session=Depends(get_db)):
+    if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
+    return build_executive_pack(db,run_id)
+
+@app.api_route('/api/runs/{run_id}/executive-pack.html', methods=['GET','HEAD'], response_class=HTMLResponse)
+def executive_pack_html(run_id:int, db:Session=Depends(get_db)):
+    p=build_executive_pack(db,run_id)
+    risks=''.join([f"<li><b>{r['severity']}: {r['title']}</b><p>{r.get('remediation','')}</p></li>" for r in p['top_risks']])
+    paths=''.join([f"<li><b>{x['priority']}: {x['name']}</b><p>{' → '.join(x['steps'])}</p></li>" for x in p['attack_paths']])
+    roadmap=''.join([f"<li><b>{x['phase']}: {x['goal']}</b><p>{', '.join([i['title'] if isinstance(i,dict) else str(i) for i in x['items']])}</p></li>" for x in p['remediation_roadmap']])
+    return f"""<!doctype html><html><head><title>Vanguard Executive Pack #{run_id}</title><style>body{{font-family:Inter,system-ui;background:#07111f;color:#e5eefb;padding:40px}}section{{background:#0d1b2f;border:1px solid #263d5b;border-radius:18px;padding:24px;margin-bottom:20px}}.kpi{{display:inline-block;margin:8px 16px 8px 0;padding:12px 16px;border:1px solid #36d39955;border-radius:12px;background:#0a1422}}li{{margin:12px 0}}</style></head><body><section><h1>Vanguard by Zer0 · Executive Security Pack</h1><h2>{p['target']}</h2><p>{p['executive_summary']}</p><div>{''.join([f'<span class="kpi"><b>{k}</b><br/>{v}</span>' for k,v in p['kpis'].items()])}</div><h3>Top risks</h3><ol>{risks}</ol><h3>Likely attack paths</h3><ol>{paths or '<li>No chained path detected.</li>'}</ol><h3>90-day remediation roadmap</h3><ol>{roadmap}</ol><p>Assurance: authorized={p['assurance']['domain_authorized']} · non-destructive=true · secrets stored=false</p></section></body></html>"""
 @app.api_route('/api/runs/{run_id}/report.html', methods=['GET','HEAD'], response_class=HTMLResponse)
 def report_html(run_id:int, db:Session=Depends(get_db)):
     rep=report(run_id,db); findings=''.join([f"<li><b>{f['severity']}: {f['title']}</b><p>{f['description']}</p><small>{f['remediation']}</small></li>" for f in rep['findings']])
@@ -168,7 +200,7 @@ def report_html(run_id:int, db:Session=Depends(get_db)):
 @app.get('/api/runs/{run_id}/evidence-bundle')
 def evidence_bundle(run_id:int, db:Session=Depends(get_db)):
     if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
-    return {'run_id':run_id,'product':'Vanguard by Zer0','report':audit.build_report(db,run_id),'timeline':timeline(run_id,db),'tasks':tasks(run_id,db),'agent_mesh':get_agent_mesh(run_id,db),'attack_surface':build_attack_surface(db,run_id)}
+    return {'run_id':run_id,'product':'Vanguard by Zer0','report':audit.build_report(db,run_id),'timeline':timeline(run_id,db),'tasks':tasks(run_id,db),'agent_mesh':get_agent_mesh(run_id,db),'attack_surface':build_attack_surface(db,run_id),'executive_pack':build_executive_pack(db,run_id)}
 @app.get('/api/runs/{run_id}/attestation')
 def run_attestation(run_id:int, db:Session=Depends(get_db)):
     run=db.get(models.AuditRun,run_id)

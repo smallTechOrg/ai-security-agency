@@ -61,7 +61,10 @@ def test_report_export_endpoints():
     client.post(f'/api/admin/domain-queue/{rid}/execute')
     html=client.get(f'/api/runs/{rid}/report.html'); assert html.status_code==200; assert 'Zer0' in html.text; assert 'text/html' in html.headers['content-type']
     head=client.head(f'/api/runs/{rid}/report.html'); assert head.status_code==200; assert 'text/html' in head.headers['content-type']
+    pack=client.get(f'/api/runs/{rid}/executive-pack'); assert pack.status_code==200; assert pack.json()['posture'] in {'board-escalation','managed-risk','strong-baseline'}; assert 'remediation_roadmap' in pack.json()
+    pack_html=client.get(f'/api/runs/{rid}/executive-pack.html'); assert pack_html.status_code==200; assert 'Executive Security Pack' in pack_html.text; assert 'text/html' in pack_html.headers['content-type']
     bundle=client.get(f'/api/runs/{rid}/evidence-bundle'); assert bundle.status_code==200; body=bundle.json(); assert body['run_id']==rid; assert body['report']['status']=='completed'; assert len(body['timeline']['evidence'])>0
+    assert body['executive_pack']['run_id']==rid
 
 def test_paid_detailed_scan_has_enterprise_depth():
     intent=client.post('/api/payments/intent', json={'target_url':'https://example.com','scan_tier':'detailed'}).json()

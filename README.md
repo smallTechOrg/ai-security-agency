@@ -71,6 +71,15 @@ Each completed run can produce a graph view that connects the approved asset to 
 curl http://127.0.0.1:8011/api/runs/<run_id>/attack-surface
 ```
 
+## Executive pack
+
+Board/CISO-ready export with posture, KPIs, top risks, attack paths, control mappings, assurance flags, and a 90-day remediation roadmap. The HTML endpoint is print/PDF-friendly.
+
+```bash
+curl http://127.0.0.1:8011/api/runs/<run_id>/executive-pack
+open http://127.0.0.1:8011/api/runs/<run_id>/executive-pack.html
+```
+
 ## Safety boundary
 
 Only test targets you own or are authorized to test. Phase 1 performs passive/safe checks only: same-origin crawl, headers, TLS metadata, forms inventory, common public files, evidence capture, report generation. Destructive exploitation, data exfiltration, brute force, bypass, spam, and availability-impacting tests are policy-blocked.
