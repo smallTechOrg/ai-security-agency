@@ -1,5 +1,6 @@
 # Runtime data (SQLite DB + generated artifacts)
 backend/data/
+data/
 
 # Python
 __pycache__/
