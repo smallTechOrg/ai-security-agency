@@ -147,7 +147,11 @@ def test_intelligence_model_selector_endpoints():
 
     r=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'CG','workspace_name':'CG','scan_tier':'free','budget_usd':0.01}); run=r.json(); rid=run['run_id']; wid=run['workspace_id']
     client.post(f'/api/admin/domain-queue/{rid}/approve', json={'decided_by':'admin','reason':'owner verified'})
-    gov=client.get(f'/api/workspaces/{wid}/cost-governor?run_id={rid}'); assert gov.status_code==200; body=gov.json(); assert body['allowed'] is False; assert body['projected_run_cost_usd'] >= 0.04
+    from app.config import settings as _s; _prev=_s.demo_unlock_detailed; _s.demo_unlock_detailed=False
+    try:
+        gov=client.get(f'/api/workspaces/{wid}/cost-governor?run_id={rid}'); assert gov.status_code==200; body=gov.json(); assert body['allowed'] is False; assert body['projected_run_cost_usd'] >= 0.04
+    finally:
+        _s.demo_unlock_detailed=_prev
 def test_upi_access_key_flow():
     qr=client.post('/api/payments/upi-qr', json={'plan':'vanguard'}); assert qr.status_code==200
     key=qr.json()['access_key']; assert qr.json()['status']=='pending'

@@ -249,6 +249,21 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
     <div className="score">Security score <b>{report.security_score}</b>/100 · {report.certificate_status}</div>
     <p>{report.executive_summary}</p>
     {costGov&&<div className="hint">Cost governor: {costGov.allowed?'within budget':'over budget'} · remaining ${costGov.remaining_usd} · projected ${costGov.projected_run_cost_usd}</div>}
+    {report.detailed_depth&&<div className="panel" style={{marginTop:16,border:'1px solid #7c5cff',background:'linear-gradient(180deg,rgba(124,92,255,0.10),transparent)'}}>
+      <h3><ShieldCheck size={16}/> Vanguard Detailed Depth <span className="pill info">PAID TIER</span></h3>
+      <div className="grid" style={{marginTop:8}}>
+        <div className={'card '+((report.detailed_depth.risk_breakdown.risk_band==='Critical'||report.detailed_depth.risk_breakdown.risk_band==='High')?'alert':'good')}><div className="ic"><AlertTriangle size={18}/></div><h3>Risk band</h3><b>{report.detailed_depth.risk_breakdown.risk_band}</b><p>weighted risk {report.detailed_depth.risk_breakdown.weighted_risk}</p></div>
+        <div className="card"><div className="ic"><ListChecks size={18}/></div><h3>Findings</h3><b>{report.detailed_depth.risk_breakdown.total}</b><p>{Object.entries(report.detailed_depth.risk_breakdown.by_severity||{}).map(([k,v])=>`${v} ${k}`).join(' · ')||'none'}</p></div>
+        <div className="card"><div className="ic"><Brain size={18}/></div><h3>AI narrative</h3><b style={{fontSize:14}}>{report.detailed_depth.narrative_source.startsWith('ai')?'AI-generated':'Deterministic'}</b><p>{report.detailed_depth.narrative_source}</p></div>
+      </div>
+      <div style={{marginTop:12,padding:14,background:'#0d1b2f',borderRadius:12,border:'1px solid #263d5b'}}><b><Brain size={14}/> Executive risk narrative</b><p style={{marginTop:6,lineHeight:1.5}}>{report.detailed_depth.executive_narrative}</p></div>
+      <h4 style={{marginTop:16}}>Prioritized remediation roadmap</h4>
+      {report.detailed_depth.remediation_roadmap.map((p,i)=><div key={i} className="item"><div className="top"><b>{p.phase}</b><span className="pill mut">{p.count}</span></div>{p.items.map((it,j)=><span key={j} className="sub" style={{display:'block'}}>• {it.title} — <span style={{opacity:0.7}}>{it.action}</span></span>)}</div>)}
+      <div className="cols2" style={{marginTop:14}}>
+        <div><h4>OWASP coverage</h4>{report.detailed_depth.owasp_coverage.map((o,i)=><div key={i} className="log">{o.category} · <b>{o.findings}</b></div>)}</div>
+        <div><h4>Compliance posture</h4>{report.detailed_depth.compliance_posture.map((c,i)=><div key={i} className="log">{c.attention?'⚠️':'✓'} {c.control}</div>)}</div>
+      </div>
+    </div>}
     {report.browser&&<div className="panel" style={{marginTop:16}}>
       <h3><ScanLine size={16}/> Browser-assisted recon <span className="count">{report.browser.engine}</span></h3>
       <div className="grid" style={{marginTop:8}}>

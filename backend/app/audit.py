@@ -93,6 +93,11 @@ def run_safe_baseline(db:Session, run_id:int):
         task(db,run.id,'paid_detailed_vanguard_review',origin,status='completed',summary='Detailed paid review pack staged: extended evidence, executive risk narrative, remediation program, and retest plan')
         db.add(models.Evidence(run_id=run.id, kind='vanguard-paid-depth', title='Paid detailed scan entitlement', data={'tier':'detailed','payment_status':app_model.get('payment_status'),'included':['extended evidence review','executive risk narrative','remediation roadmap','retest planning']}))
         app_model['paid_entitlements']=['extended evidence review','executive risk narrative','remediation roadmap','retest planning']
+        from . import detailed_depth as _dd
+        _all_findings=db.query(models.Finding).filter_by(run_id=run.id).all()
+        depth=_dd.build(asset.url,_all_findings)
+        db.add(models.Evidence(run_id=run.id, kind='detailed-depth', title='Vanguard detailed depth analysis', data=depth))
+        cost(db,run.id,depth.get('narrative_source','deterministic'),'detailed_depth_analysis',0.0,detail={'risk_band':depth['risk_breakdown']['risk_band']})
     cost(db,run.id,'deterministic','safe_baseline' if tier!='detailed' else 'paid_detailed_vanguard_scan',scan_cost,detail={'pages':len(pages),'forms':len(forms),'tier':tier}); run.app_model=app_model; run.status='completed'; run.stage='report_ready'; run.progress=100; run.cost_estimate_usd=scan_cost; db.add(models.ReportVersion(run_id=run.id,status='draft',content={'score_pending':True,'app_model':app_model})); db.commit(); log(db, run.workspace_id, run.id, 'run.completed', {'findings':db.query(models.Finding).filter_by(run_id=run.id).count(),'cost_estimate_usd':run.cost_estimate_usd,'scan_tier':tier})
     return run
 def build_report(db:Session, run_id:int)->dict:
@@ -103,4 +108,8 @@ def build_report(db:Session, run_id:int)->dict:
     if browser_ev:
         m=(browser_ev.data or {}).get('model',{})
         browser={'engine':m.get('engine'),'screenshot_available':(browser_ev.data or {}).get('screenshot_available',False),'screenshot_url':f'/api/runs/{run_id}/screenshot' if (browser_ev.data or {}).get('screenshot_available') else None,'browser_only_findings':(browser_ev.data or {}).get('browser_findings',0),'spa_gap':m.get('spa_gap',{}),'human_takeover':m.get('human_takeover',False),'cookies_observed':len(m.get('cookies',[])),'third_party_requests':len(m.get('network_sample',[]))}
-    return {'run_id':run_id,'target':asset.url,'status':run.status,'security_score':score,'certificate_status':'review-required' if findings else 'baseline-pass-review-required','executive_summary':f'Safe baseline audit completed for {asset.url}. {len(findings)} findings require reviewer validation before client delivery.','app_model':run.app_model,'browser':browser,'findings':[{'severity':f.severity,'title':f.title,'description':f.description,'evidence':f.evidence,'remediation':f.remediation,'compliance':f.compliance} for f in findings],'evidence_count':len(evidence),'cost_estimate_usd':run.cost_estimate_usd,'next_steps':['Reviewer validates findings','Approve authenticated/deeper testing if in scope','Retest after remediation']}
+    depth_ev=next((e for e in evidence if e.kind=='detailed-depth'),None)
+    detailed_depth=depth_ev.data if depth_ev else None
+    tier=(run.app_model or {}).get('scan_tier','free')
+    exec_summary=(detailed_depth.get('executive_narrative') if detailed_depth else None) or f'Safe baseline audit completed for {asset.url}. {len(findings)} findings require reviewer validation before client delivery.'
+    return {'run_id':run_id,'target':asset.url,'status':run.status,'scan_tier':tier,'security_score':score,'certificate_status':'review-required' if findings else 'baseline-pass-review-required','executive_summary':exec_summary,'app_model':run.app_model,'browser':browser,'detailed_depth':detailed_depth,'findings':[{'severity':f.severity,'title':f.title,'description':f.description,'evidence':f.evidence,'remediation':f.remediation,'compliance':f.compliance} for f in findings],'evidence_count':len(evidence),'cost_estimate_usd':run.cost_estimate_usd,'next_steps':['Reviewer validates findings','Approve authenticated/deeper testing if in scope','Retest after remediation']}
