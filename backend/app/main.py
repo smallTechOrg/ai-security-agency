@@ -67,7 +67,9 @@ def cost_governor_state(db:Session, workspace_id:int, run_id:int|None=None):
     run=db.get(models.AuditRun,run_id) if run_id else None
     projected=projected_run_cost(run) if run else 0
     remaining=round(ws.budget_usd-spent,4)
-    return {'workspace_id':workspace_id,'budget_usd':ws.budget_usd,'spent_usd':spent,'remaining_usd':remaining,'projected_run_cost_usd':projected,'allowed':spent+projected<=ws.budget_usd,'guardrail':'block_execution_when_projected_cost_exceeds_budget'}
+    # DEMO: budget cap disabled via settings.demo_unlock_detailed so scans always run.
+    allowed = True if settings.demo_unlock_detailed else (spent+projected<=ws.budget_usd)
+    return {'workspace_id':workspace_id,'budget_usd':ws.budget_usd,'spent_usd':spent,'remaining_usd':remaining,'projected_run_cost_usd':projected,'allowed':allowed,'guardrail':'demo_unlimited' if settings.demo_unlock_detailed else 'block_execution_when_projected_cost_exceeds_budget'}
 
 @app.get('/api/workspaces/{workspace_id}/cost-governor')
 def cost_governor(workspace_id:int, run_id:int|None=None, db:Session=Depends(get_db)):
