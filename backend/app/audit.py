@@ -133,6 +133,14 @@ def build_report(db:Session, run_id:int)->dict:
         db.add(models.Evidence(run_id=run_id,kind='analyst-agent',title='Threat Analyst sub-agent',data=analyst)); db.commit()
     else:
         analyst=analyst_ev.data if analyst_ev else None
+    # Red Team sub-agent (offensive attack-chain analysis, cached).
+    redteam_ev=next((e for e in evidence if e.kind=='redteam-agent'),None)
+    if redteam_ev is None and findings:
+        from . import agents as _agr
+        redteam=_agr.redteam_agent(asset.url,findings,run.app_model,db=db,run_id=run_id)
+        db.add(models.Evidence(run_id=run_id,kind='redteam-agent',title='Red Team sub-agent',data=redteam)); db.commit()
+    else:
+        redteam=redteam_ev.data if redteam_ev else None
     # Third LLM sub-agent: Remediation Engineer (cached).
     remediation_ev=next((e for e in evidence if e.kind=='remediation-agent'),None)
     if remediation_ev is None and findings:
@@ -147,6 +155,7 @@ def build_report(db:Session, run_id:int)->dict:
             if _t['agent']=='Reporter':
                 _t['llm_backed']=reporter.get('llm_backed'); _t['llm_source']=reporter.get('source'); _t['output']=(reporter.get('assessment') or '')[:220]
     _splice=[('Analyst',analyst,'reasoning','Prioritized the top attack path (LLM)'),
+             ('Red Team',redteam,'attack_chain','Modeled the attacker kill-chain (LLM)'),
              ('Remediation',remediation,'fixes','Generated concrete remediation (LLM)')]
     for _name,_a,_field,_dec in _splice:
         if _a:
@@ -154,7 +163,7 @@ def build_report(db:Session, run_id:int)->dict:
             agent_loop['trace'].insert(_idx, {'agent':_name,'decision':_dec,'detail':(_a.get(_field) or '')[:220],'llm_backed':_a.get('llm_backed'),'llm_source':_a.get('source')})
     for _i,_t in enumerate(agent_loop['trace']): _t['iter']=_i+1
     agent_loop['iterations']=len(agent_loop['trace'])
-    agent_loop['llm_agents']=sum(1 for a in (analyst,reporter,remediation) if a and a.get('llm_backed'))
+    agent_loop['llm_agents']=sum(1 for a in (analyst,redteam,reporter,remediation) if a and a.get('llm_backed'))
     agent_loop['multi_agent']=agent_loop['llm_agents']>=2
     # Accumulating agent memory (short + long term).
     from . import memory as _mem
@@ -163,4 +172,4 @@ def build_report(db:Session, run_id:int)->dict:
     from . import observability as _obs
     observability=_obs.for_run(db,run_id)
     exec_summary=(detailed_depth.get('executive_narrative') if detailed_depth else None) or f'Safe baseline audit completed for {asset.url}. {len(findings)} findings require reviewer validation before client delivery.'
-    return {'run_id':run_id,'target':asset.url,'status':run.status,'scan_tier':tier,'security_score':score,'certificate_status':'review-required' if findings else 'baseline-pass-review-required','executive_summary':exec_summary,'app_model':run.app_model,'browser':browser,'detailed_depth':detailed_depth,'active_probe':active_probe,'agent_loop':agent_loop,'reporter':reporter,'analyst':analyst,'remediation':remediation,'memory':memory,'observability':observability,'findings':[{'severity':f.severity,'title':f.title,'description':f.description,'evidence':f.evidence,'remediation':f.remediation,'compliance':f.compliance} for f in findings],'evidence_count':len(evidence),'cost_estimate_usd':run.cost_estimate_usd,'next_steps':['Reviewer validates findings','Approve authenticated/deeper testing if in scope','Retest after remediation']}
+    return {'run_id':run_id,'target':asset.url,'status':run.status,'scan_tier':tier,'security_score':score,'certificate_status':'review-required' if findings else 'baseline-pass-review-required','executive_summary':exec_summary,'app_model':run.app_model,'browser':browser,'detailed_depth':detailed_depth,'active_probe':active_probe,'agent_loop':agent_loop,'reporter':reporter,'analyst':analyst,'redteam':redteam,'remediation':remediation,'memory':memory,'observability':observability,'findings':[{'severity':f.severity,'title':f.title,'description':f.description,'evidence':f.evidence,'remediation':f.remediation,'compliance':f.compliance} for f in findings],'evidence_count':len(evidence),'cost_estimate_usd':run.cost_estimate_usd,'next_steps':['Reviewer validates findings','Approve authenticated/deeper testing if in scope','Retest after remediation']}

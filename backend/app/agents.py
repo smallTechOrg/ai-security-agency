@@ -110,6 +110,47 @@ def remediation_agent(target, findings, app_model, db=None, run_id=None) -> dict
             'fixes': deterministic}
 
 
+REDTEAM_SYSTEM = (
+    "You are the Red Team agent. Think like an attacker: from the given findings, describe the most "
+    "plausible ATTACK CHAIN — how an adversary would combine these weaknesses step by step to reach a "
+    "concrete objective (account takeover, data access, defacement). 3-5 numbered steps. This is analysis "
+    "for the defender's report; do NOT provide working exploit code and do NOT invent findings."
+)
+
+
+def redteam_agent(target, findings, app_model, db=None, run_id=None) -> dict:
+    """Offensive-analysis LLM sub-agent: attacker's-eye attack chain (analysis only, no exploit code)."""
+    finding_lines = '; '.join(f'{f.severity}: {f.title}' for f in findings[:12]) or 'no findings'
+    deterministic = (
+        '1) Recon: enumerate the exposed surface and missing headers. '
+        '2) Foothold: leverage a reflected-input or CORS gap to run script in a victim session. '
+        '3) Escalate: pair weak cookie flags with clickjacking/host-header issues to hijack an authenticated '
+        'session. 4) Impact: act as the victim (account takeover / data access). Breaking any single link '
+        '(CSP, cookie flags, header validation) collapses the chain.'
+    )
+    try:
+        prompt = (f'{REDTEAM_SYSTEM}\n\nTarget: {target}\nFindings: {finding_lines}\n\n'
+                  'Give the attack-chain analysis now.')
+        chain = _provider_chain()
+        out = entry = None
+        if db is not None:
+            from . import observability
+            out, entry = observability.call_with_trace(db, run_id, 'Red Team', prompt, chain)
+        else:
+            from . import llm
+            for m, e in chain:
+                r = llm.live_intelligence(prompt, m, e)
+                if r and r.get('summary'):
+                    out, entry = r, e; break
+        if out and out.get('summary'):
+            return {'agent': 'Red Team', 'llm_backed': True, 'source': f'ai:{entry.get("provider")}',
+                    'model': entry.get('model'), 'attack_chain': out['summary'].strip()}
+    except Exception:
+        pass
+    return {'agent': 'Red Team', 'llm_backed': False, 'source': 'deterministic', 'model': None,
+            'attack_chain': deterministic}
+
+
 def reporter_agent(target, findings, app_model, db=None, run_id=None) -> dict:
     """LLM-backed Reporter sub-agent → business-impact assessment. Deterministic fallback on any failure."""
     am = app_model or {}

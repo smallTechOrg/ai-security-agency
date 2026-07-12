@@ -316,6 +316,25 @@ def run_screenshot(run_id:int, db:Session=Depends(get_db)):
     if not shot.is_file(): raise HTTPException(404,'no screenshot captured for this run')
     return FileResponse(str(shot), media_type='image/png')
 
+@app.get('/api/runs/{run_id}/intervention')
+def intervention_state(run_id:int, db:Session=Depends(get_db)):
+    run=db.get(models.AuditRun,run_id)
+    if not run: raise HTTPException(404,'run not found')
+    ev=db.query(models.Evidence).filter_by(run_id=run_id,kind='browser-recon').order_by(models.Evidence.id.desc()).first()
+    model=(ev.data or {}).get('model',{}) if ev else {}
+    resolved=bool((run.app_model or {}).get('intervention_resolved'))
+    from .artifacts import run_dir
+    shot=run_dir(run_id)/'homepage.png'
+    return {'needed':bool(model.get('human_takeover')) and not resolved,'resolved':resolved,'reason':model.get('takeover_reason','') or 'A CAPTCHA, login, or MFA wall was detected. Human assistance is needed to continue safely.','kind':'captcha_or_login_wall','screenshot_url':f'/api/runs/{run_id}/screenshot' if shot.is_file() else None}
+
+@app.post('/api/runs/{run_id}/intervention/resume')
+def intervention_resume(run_id:int, req:schemas.InterventionResumeRequest, db:Session=Depends(get_db)):
+    run=db.get(models.AuditRun,run_id)
+    if not run: raise HTTPException(404,'run not found')
+    model=dict(run.app_model or {}); model['intervention_resolved']=True; model['human_action']=req.note or ('solved' if req.solved else 'skipped'); run.app_model=model
+    db.commit(); audit.log(db,run.workspace_id,run.id,'human.intervention.resolved',{'solved':req.solved,'note':req.note},actor='human-operator')
+    return {'ok':True,'resumed':True,'human_action':model['human_action']}
+
 @app.post('/api/runs/{run_id}/active-probe')
 def active_probe_endpoint(run_id:int, db:Session=Depends(get_db)):
     run=db.get(models.AuditRun,run_id)

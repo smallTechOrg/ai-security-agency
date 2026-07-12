@@ -27,3 +27,6 @@ class RepoAnalyzeRequest(BaseModel):
     repo_url:str=''   # public git URL to clone (safe, read-only)
     deep:bool=False   # include insecure-code SAST patterns
     workspace_id:int=0
+class InterventionResumeRequest(BaseModel):
+    solved: bool = True          # human confirms they solved the CAPTCHA / logged in
+    note: str = ''               # optional: what the human did (e.g. "solved captcha", "logged in as test user")

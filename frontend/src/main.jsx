@@ -29,6 +29,9 @@ function App(){
       await api(`/api/runs/${id}/approve`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decided_by:'admin (demo auto-approve)',reason:'Authorized demo scan.'})});
       const executed=await api(`/api/runs/${id}/execute`,{method:'POST'});setRun({...executed,stage:'browser recon',progress:70});
       try{await api(`/api/runs/${id}/browser-recon`,{method:'POST'});}catch(e){/* browser recon optional; baseline results still show */}
+      // Human-in-the-loop: pause if a CAPTCHA/login/MFA wall was detected.
+      const iv=await api(`/api/runs/${id}/intervention`).catch(()=>null);
+      if(iv&&iv.needed){setIntervention({...iv,run_id:id,workspace_id:j.workspace_id});setBusy(false);return;}
       try{await api(`/api/runs/${id}/active-probe`,{method:'POST'});}catch(e){/* active probe optional; authorized domains only */}
       await api(`/api/workspaces/${j.workspace_id}/enterprise-program`,{method:'POST'}).catch(()=>{});
       await load();
@@ -50,6 +53,8 @@ function App(){
   const open=tickets?.tickets?.filter(t=>t.status!=='closed').length;
   const nav=[{id:'overview',label:'Overview',icon:LayoutDashboard},{id:'scans',label:'Scans',icon:ScanLine,badge:dash?.runs?.length},{id:'approvals',label:'Domain approvals',icon:ShieldCheck,badge:admin?.items?.filter(x=>x.status==='pending').length},{id:'domains',label:'Domain registry',icon:Radio},{id:'remediation',label:'Remediation',icon:ListChecks,badge:open},{id:'schedules',label:'Schedules',icon:CalendarClock},{id:'team',label:'Team & RBAC',icon:Users},{id:'billing',label:'Billing',icon:Receipt},{id:'audit',label:'Audit log',icon:ScrollText},{id:'readiness',label:'Launch readiness',icon:Wrench},{id:'repo',label:'Repo analysis',icon:Code2},{id:'keys',label:'Access keys',icon:KeyRound}];
   const[repo,setRepo]=useState(null);
+  const[intervention,setIntervention]=useState(null);
+  async function resumeIntervention(){if(!intervention)return;setBusy(true);setError('');const id=intervention.run_id,wid=intervention.workspace_id;try{await api(`/api/runs/${id}/intervention/resume`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({solved:true,note:'human solved CAPTCHA/login, resumed'})});try{await api(`/api/runs/${id}/active-probe`,{method:'POST'})}catch(e){}setIntervention(null);await load();await openRun({run_id:id,workspace_id:wid,status:'completed'})}catch(e){setError(e.message)}finally{setBusy(false)}}
   const[upi,setUpi]=useState(null);
   const[upiKey,setUpiKey]=useState('');
   const[keys,setKeys]=useState(null);
@@ -73,6 +78,12 @@ function App(){
         </div>
         <div className="content">
           {error&&<div className="error">{error}</div>}
+          {intervention&&<div className="panel" style={{border:'2px solid #f7b955',background:'linear-gradient(180deg,rgba(247,185,85,0.12),transparent)',marginBottom:16}}>
+            <h3><LockKeyhole size={16}/> ⏸ Human intervention needed <span className="pill warn">{intervention.kind?.replace(/_/g,' ')||'takeover'}</span></h3>
+            <p style={{marginTop:6}}>{intervention.reason}</p>
+            {intervention.screenshot_url&&<div style={{marginTop:10}}><img src={`${API}${intervention.screenshot_url}`} alt="Page requiring human action" style={{maxWidth:'100%',borderRadius:12,border:'1px solid #263d5b'}}/></div>}
+            <div className="row" style={{marginTop:12}}><button className="btn" disabled={busy} onClick={resumeIntervention}>{busy?'Resuming…':'✓ I solved it — resume scan'}</button><button className="btn ghost" disabled={busy} onClick={()=>setIntervention(null)}>Dismiss</button></div>
+          </div>}
           {view==='overview'&&<Overview dash={dash} summary={summary} readiness={readiness} costGov={costGov} current={current} pendingRun={pendingRun} tier={tier} setTier={setTier} url={url} setUrl={setUrl} start={start} buyDetailed={buyDetailed} approve={approve} billing={billing} busy={busy} payment={payment} intelModels={intelModels} intelMode={intelMode} pickIntelMode={pickIntelMode} upi={upi} setUpi={setUpi} mintUpi={mintUpi} upiKey={upiKey} setUpiKey={setUpiKey}/>}
           {view==='scans'&&<Scans dash={dash} run={run} openRun={openRun} current={current}/>}
           {view==='approvals'&&<Approvals admin={admin} onApprove={approveQueueRun} onExecute={executeQueueRun}/>}
@@ -253,6 +264,10 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
     {report.active_probe&&<div className="panel" style={{marginTop:16,border:'1px solid #ff5c7c',background:'linear-gradient(180deg,rgba(255,92,124,0.09),transparent)'}}>
       <h3><ScanLine size={16}/> Penetration test — active probes <span className="pill bad">{report.active_probe.findings} issues</span><span className="pill mut">{report.active_probe.checks_run} checks · non-destructive</span></h3>
       <div style={{marginTop:8}}>{(report.active_probe.checks||[]).map((c,i)=><div key={i} className="item" style={{borderLeft:'2px solid '+(c.issue_found?'#ff5c7c':'#36d399')}}><div className="top"><b>{c.issue_found?'⚠️':'✓'} {c.check}</b><span className={'pill '+(c.issue_found?'bad':'ok')}>{c.issue_found?c.severity:'pass'}</span></div>{c.title&&<span className="sub">{c.title}</span>}</div>)}</div>
+    </div>}
+    {report.redteam&&<div className="panel" style={{marginTop:16,border:'1px solid #ff5c7c'}}>
+      <h3><AlertTriangle size={16}/> Red Team agent — attack chain <span className={'pill '+(report.redteam.llm_backed?'bad':'mut')}>{report.redteam.llm_backed?`LLM · ${report.redteam.source}`:'deterministic'}</span></h3>
+      <pre style={{marginTop:8,whiteSpace:'pre-wrap',lineHeight:1.6,background:'#1a0d14',padding:14,borderRadius:12,border:'1px solid #3a1f28'}}>{report.redteam.attack_chain}</pre>
     </div>}
     {report.reporter&&<div className="panel" style={{marginTop:16}}>
       <h3><FileText size={16}/> Reporter sub-agent <span className={'pill '+(report.reporter.llm_backed?'ok':'mut')}>{report.reporter.llm_backed?`LLM · ${report.reporter.source}`:'deterministic'}</span></h3>
