@@ -14,6 +14,14 @@ def test_private_targets_blocked():
     r=client.post('/api/bootstrap', json={'target_url':'http://127.0.0.1:9999','client_name':'T','workspace_name':'W','budget_usd':1.0})
     assert r.status_code==400
 def test_free_and_paid_scan_gates():
+    # This test verifies the payment gate itself, so disable the demo unlock for its duration.
+    from app.config import settings as _s; _prev=_s.demo_unlock_detailed; _s.demo_unlock_detailed=False
+    try:
+        _run_scan_gate_assertions()
+    finally:
+        _s.demo_unlock_detailed=_prev
+
+def _run_scan_gate_assertions():
     free=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'T','workspace_name':'W','scan_tier':'free'}); assert free.status_code==200; assert free.json()['status']=='awaiting_approval'
     unpaid=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'T','workspace_name':'W','scan_tier':'detailed'}); assert unpaid.status_code==200; assert unpaid.json()['status']=='payment_required'; assert unpaid.json()['needs_approval'] is False
     blocked=client.post(f"/api/runs/{unpaid.json()['run_id']}/execute"); assert blocked.status_code==402
