@@ -1,0 +1,4 @@
+name: projects/870371939888/policies/iam.allowedPolicyMemberDomains
+spec:
+  rules:
+  - allowAll: true

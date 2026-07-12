@@ -1,7 +1,9 @@
 from pydantic import BaseModel, HttpUrl
 from typing import Any
 class BootstrapRequest(BaseModel):
-    client_name: str='Vanguard Client'; workspace_name: str='Zer0 Security Program'; target_url: HttpUrl; scope_note: str='Authorized public website baseline scan.'; budget_usd: float=2.0; scan_tier: str='free'; payment_reference: str=''
+    client_name: str='Vanguard Client'; workspace_name: str='Zer0 Security Program'; target_url: HttpUrl; scope_note: str='Authorized public website baseline scan.'; budget_usd: float=2.0; scan_tier: str='free'; payment_reference: str=''; access_key: str=''
+class AccessKeyRequest(BaseModel):
+    plan: str='vanguard'; note: str=''
 class RunOut(BaseModel):
     run_id:int; workspace_id:int; asset_id:int; status:str; stage:str; progress:int; needs_approval: bool=False
 class ApprovalRequest(BaseModel):

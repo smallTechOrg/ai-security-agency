@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4.1-mini"
     gemini_model: str = "gemini-2.5-flash-lite"
+    upi_id: str = ""  # UPI handle for QR payments, e.g. yourname@bank
     cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
     default_budget_usd: float = 2.0
     browser_recon_enabled: bool = True

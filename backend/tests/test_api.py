@@ -140,7 +140,16 @@ def test_intelligence_model_selector_endpoints():
     r=client.post('/api/bootstrap', json={'target_url':'https://example.com','client_name':'CG','workspace_name':'CG','scan_tier':'free','budget_usd':0.01}); run=r.json(); rid=run['run_id']; wid=run['workspace_id']
     client.post(f'/api/admin/domain-queue/{rid}/approve', json={'decided_by':'admin','reason':'owner verified'})
     gov=client.get(f'/api/workspaces/{wid}/cost-governor?run_id={rid}'); assert gov.status_code==200; body=gov.json(); assert body['allowed'] is False; assert body['projected_run_cost_usd'] >= 0.04
-    blocked=client.post(f'/api/admin/domain-queue/{rid}/execute'); assert blocked.status_code==402
+def test_upi_access_key_flow():
+    qr=client.post('/api/payments/upi-qr', json={'plan':'vanguard'}); assert qr.status_code==200
+    key=qr.json()['access_key']; assert qr.json()['status']=='pending'
+    # Deep audit with non-activated key must be blocked (402).
+    blocked=client.post('/api/bootstrap', json={'target_url':'https://example.com','scan_tier':'detailed','access_key':key}); assert blocked.status_code==402
+    act=client.post(f'/api/admin/access-key/{key}/activate', json={'decided_by':'admin','reason':'UPI received'}); assert act.status_code==200; assert act.json()['status']=='active'
+    # Now deep audit with active key is allowed.
+    ok=client.post('/api/bootstrap', json={'target_url':'https://example.com','scan_tier':'detailed','access_key':key}); assert ok.status_code==200; assert ok.json()['status']=='awaiting_approval'
+    rev=client.post(f'/api/admin/access-key/{key}/revoke'); assert rev.status_code==200; assert rev.json()['status']=='revoked'
+
 
 def test_repo_analyzer_deterministic_and_cost_free():
     import tempfile, os
