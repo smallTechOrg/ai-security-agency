@@ -9,11 +9,11 @@ class EB extends React.Component{constructor(p){super(p);this.state={e:null}}sta
 
 function App(){
   const[view,setView]=useState('overview');
-  const[health,setHealth]=useState(null),[dash,setDash]=useState(null),[admin,setAdmin]=useState(null),[domains,setDomains]=useState(null),[auditLog,setAuditLog]=useState(null),[billing,setBilling]=useState(null),[schedules,setSchedules]=useState(null),[tickets,setTickets]=useState(null),[summary,setSummary]=useState(null),[readiness,setReadiness]=useState(null),[users,setUsers]=useState(null),[costGov,setCostGov]=useState(null),[intelModels,setIntelModels]=useState(null),[intelMode,setIntelMode]=useState('deterministic'),[url,setUrl]=useState('https://example.com'),[tier,setTier]=useState('free'),[payment,setPayment]=useState(''),[run,setRun]=useState(null),[report,setReport]=useState(null),[timeline,setTimeline]=useState(null),[tasks,setTasks]=useState(null),[intel,setIntel]=useState(null),[enterprise,setEnterprise]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
+  const[health,setHealth]=useState(null),[dash,setDash]=useState(null),[admin,setAdmin]=useState(null),[domains,setDomains]=useState(null),[auditLog,setAuditLog]=useState(null),[billing,setBilling]=useState(null),[schedules,setSchedules]=useState(null),[tickets,setTickets]=useState(null),[summary,setSummary]=useState(null),[readiness,setReadiness]=useState(null),[users,setUsers]=useState(null),[costGov,setCostGov]=useState(null),[intelModels,setIntelModels]=useState(null),[intelMode,setIntelMode]=useState('deterministic'),[url,setUrl]=useState('https://example.com'),[tier,setTier]=useState('free'),[payment,setPayment]=useState(''),[run,setRun]=useState(null),[report,setReport]=useState(null),[timeline,setTimeline]=useState(null),[tasks,setTasks]=useState(null),[agentMesh,setAgentMesh]=useState(null),[intel,setIntel]=useState(null),[enterprise,setEnterprise]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
   async function api(path,options){const r=await fetch(API+path,options),j=await r.json().catch(()=>({detail:r.statusText}));if(!r.ok)throw new Error(j.detail||`HTTP ${r.status}`);return j}
   async function load(){try{setHealth(await api('/health'));setDash(await api('/api/dashboard'));setAdmin(await api('/api/admin/domain-queue'));setDomains(await api('/api/admin/domains'));setAuditLog(await api('/api/admin/audit-log'));setBilling(await api('/api/billing/plans'));setSchedules(await api('/api/admin/schedules'));setTickets(await api('/api/remediation-tickets'));setSummary(await api('/api/program/summary'));setReadiness(await api('/api/program/readiness'));setUsers(await api('/api/admin/users'));const m=await api('/api/intelligence/models');setIntelModels(m);setIntelMode(m.current)}catch(e){}}
   useEffect(()=>{load()},[]);
-  function clearReport(){setReport(null);setTimeline(null);setTasks(null);setIntel(null);setEnterprise(null)}
+  function clearReport(){setReport(null);setTimeline(null);setTasks(null);setAgentMesh(null);setIntel(null);setEnterprise(null)}
   async function buyDetailed(){setBusy(true);setError('');try{const p=await api('/api/payments/intent',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({target_url:url,scan_tier:'detailed'})});setPayment(p.payment_reference);setTier('detailed')}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function mintUpi(){setBusy(true);setError('');setUpi(null);try{const p=await api('/api/payments/upi-qr',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({plan:'vanguard'})});setUpi(p);setTier('detailed')}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function loadKeys(){try{setKeys(await api('/api/admin/access-keys'))}catch(e){}}
@@ -41,7 +41,7 @@ function App(){
       await load();setError('This detailed scan needs payment/approval. Use a free scan for instant results, or enable demo unlock.');
     }
   }catch(e){setError(e.message)}finally{setBusy(false)}}
-  async function openRun(r){const id=r.run_id||r.id;setBusy(true);setError('');setRun({run_id:id,workspace_id:r.workspace_id,asset_id:r.asset_id||0,status:r.status,stage:r.stage,progress:r.progress,app_model:r.app_model||{}});clearReport();try{if(['awaiting_approval','payment_required','queued'].includes(r.status)){if(r.workspace_id)setCostGov(await api(`/api/workspaces/${r.workspace_id}/cost-governor?run_id=${id}`));return;}const [rep,tl,tk,ai,ent,gov]=await Promise.all([api(`/api/runs/${id}/report`),api(`/api/runs/${id}/timeline`),api(`/api/runs/${id}/tasks`),api(`/api/runs/${id}/intelligence`),api(`/api/workspaces/${r.workspace_id}/enterprise`),api(`/api/workspaces/${r.workspace_id}/cost-governor?run_id=${id}`)]);setReport(rep);setTimeline(tl);setTasks(tk);setIntel(ai);setEnterprise(ent);setCostGov(gov);setView('report')}catch(e){setError(e.message)}finally{setBusy(false)}}
+  async function openRun(r){const id=r.run_id||r.id;setBusy(true);setError('');setRun({run_id:id,workspace_id:r.workspace_id,asset_id:r.asset_id||0,status:r.status,stage:r.stage,progress:r.progress,app_model:r.app_model||{}});clearReport();try{if(['awaiting_approval','payment_required','queued'].includes(r.status)){if(r.workspace_id)setCostGov(await api(`/api/workspaces/${r.workspace_id}/cost-governor?run_id=${id}`));return;}const [rep,tl,tk,mesh,ai,ent,gov]=await Promise.all([api(`/api/runs/${id}/report`),api(`/api/runs/${id}/timeline`),api(`/api/runs/${id}/tasks`),api(`/api/runs/${id}/agent-mesh`),api(`/api/runs/${id}/intelligence`),api(`/api/workspaces/${r.workspace_id}/enterprise`),api(`/api/workspaces/${r.workspace_id}/cost-governor?run_id=${id}`)]);setReport(rep);setTimeline(tl);setTasks(tk);setAgentMesh(mesh);setIntel(ai);setEnterprise(ent);setCostGov(gov);setView('report')}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function approve(){const active=run?.status==='awaiting_approval'?run:dash?.runs?.[0]?.status==='awaiting_approval'?dash.runs[0]:null;if(!active)return setError('Create a free audit or paid detailed scan first; admin approval unlocks testing.');const id=active.run_id||active.id;setBusy(true);setError('');try{await api(`/api/runs/${id}/approve`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decided_by:'admin',reason:'Domain ownership and testing scope approved.'})});const executed=await api(`/api/runs/${id}/execute`,{method:'POST'});setRun(executed);const br=await api(`/api/runs/${id}/browser-recon`,{method:'POST'});setRun({...executed,status:br.status,stage:br.stage,progress:br.progress});await api(`/api/workspaces/${active.workspace_id}/enterprise-program`,{method:'POST'});await load();await openRun({...executed,status:br.status,stage:br.stage,progress:br.progress})}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function approveQueueRun(x){setBusy(true);setError('');try{const approved=await api(`/api/admin/domain-queue/${x.run_id}/approve`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decided_by:'admin',reason:'Domain owner/admin approved from Vanguard queue.'})});setRun(approved);await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
   async function executeQueueRun(x){setBusy(true);setError('');try{const done=await api(`/api/admin/domain-queue/${x.run_id}/execute`,{method:'POST'});await load();await openRun({...done,id:done.run_id})}catch(e){setError(e.message)}finally{setBusy(false)}}
@@ -52,7 +52,7 @@ function App(){
 
   const newestRun=dash?.runs?.[0],pendingRun=run?.status==='awaiting_approval'?run:(newestRun?.status==='awaiting_approval'?newestRun:null),current=run||newestRun,findings=report?.findings||dash?.findings||[],commerce=dash?.commerce||{};
   const open=tickets?.tickets?.filter(t=>t.status!=='closed').length;
-  const nav=[{id:'overview',label:'Overview',icon:LayoutDashboard},{id:'scans',label:'Scans',icon:ScanLine,badge:dash?.runs?.length},{id:'approvals',label:'Domain approvals',icon:ShieldCheck,badge:admin?.items?.filter(x=>x.status==='pending').length},{id:'domains',label:'Domain registry',icon:Radio},{id:'remediation',label:'Remediation',icon:ListChecks,badge:open},{id:'schedules',label:'Schedules',icon:CalendarClock},{id:'team',label:'Team & RBAC',icon:Users},{id:'billing',label:'Billing',icon:Receipt},{id:'audit',label:'Audit log',icon:ScrollText},{id:'readiness',label:'Launch readiness',icon:Wrench},{id:'repo',label:'Repo analysis',icon:Code2},{id:'keys',label:'Access keys',icon:KeyRound}];
+  const nav=[{id:'overview',label:'Overview',icon:LayoutDashboard},{id:'scans',label:'Scans',icon:ScanLine,badge:dash?.runs?.length},{id:'mesh',label:'Agent mesh',icon:GitBranch,badge:agentMesh?.agent_status?.length},{id:'approvals',label:'Domain approvals',icon:ShieldCheck,badge:admin?.items?.filter(x=>x.status==='pending').length},{id:'domains',label:'Domain registry',icon:Radio},{id:'remediation',label:'Remediation',icon:ListChecks,badge:open},{id:'schedules',label:'Schedules',icon:CalendarClock},{id:'team',label:'Team & RBAC',icon:Users},{id:'billing',label:'Billing',icon:Receipt},{id:'audit',label:'Audit log',icon:ScrollText},{id:'readiness',label:'Launch readiness',icon:Wrench},{id:'repo',label:'Repo analysis',icon:Code2},{id:'keys',label:'Access keys',icon:KeyRound}];
   const[repo,setRepo]=useState(null);
   const[intervention,setIntervention]=useState(null);
   async function resumeIntervention(){if(!intervention)return;setBusy(true);setError('');const id=intervention.run_id,wid=intervention.workspace_id;try{await api(`/api/runs/${id}/intervention/resume`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({solved:true,note:'human solved CAPTCHA/login, resumed'})});try{await api(`/api/runs/${id}/active-probe`,{method:'POST'})}catch(e){}setIntervention(null);await load();await openRun({run_id:id,workspace_id:wid,status:'completed'})}catch(e){setError(e.message)}finally{setBusy(false)}}
@@ -63,13 +63,13 @@ function App(){
   return (
     <div className="app">
       <aside className="side">
-        <div className="brand"><div className="logo"><Shield size={20}/></div><div><b>Zer0</b><br/><small>The Vanguard</small></div></div>
+        <div className="brand"><div className="logo"><Shield size={20}/></div><div><b>Vanguard</b><br/><small>by Zer0</small></div></div>
         <nav className="nav">{nav.map(n=><button key={n.id} className={view===n.id?'active':''} onClick={()=>setView(n.id)}><n.icon size={17}/>{n.label}{n.badge?n.badge>0&&<span className="badge">{n.badge}</span>:null}</button>)}</nav>
         <div className="foot">A security agent for your company.</div>
       </aside>
       <div className="main">
         <div className="topbar">
-          <div className="title"><b>{nav.find(n=>n.id===view)?.label||'Console'}</b><p>Zer0 — The Vanguard · enterprise web exposure control plane</p></div>
+          <div className="title"><b>{nav.find(n=>n.id===view)?.label||'Console'}</b><p>Vanguard by Zer0 · enterprise web exposure control plane</p></div>
           <div className="spacer"/>
           <div className="health">
             <span className="chip"><span className={'dot '+(health?.provider?.openai?'ok':'')}/>OpenAI {health?.provider?.openai?'ready':'off'}</span>
@@ -87,6 +87,7 @@ function App(){
           </div>}
           {view==='overview'&&<Overview dash={dash} summary={summary} readiness={readiness} costGov={costGov} current={current} pendingRun={pendingRun} tier={tier} setTier={setTier} url={url} setUrl={setUrl} start={start} buyDetailed={buyDetailed} approve={approve} billing={billing} busy={busy} payment={payment} intelModels={intelModels} intelMode={intelMode} pickIntelMode={pickIntelMode} upi={upi} setUpi={setUpi} mintUpi={mintUpi} upiKey={upiKey} setUpiKey={setUpiKey}/>}
           {view==='scans'&&<Scans dash={dash} run={run} openRun={openRun} current={current}/>}
+          {view==='mesh'&&<AgentMesh mesh={agentMesh} run={run}/>} 
           {view==='approvals'&&<Approvals admin={admin} onApprove={approveQueueRun} onExecute={executeQueueRun}/>}
           {view==='domains'&&<Domains domains={domains} onRevoke={revokeDomain}/>}
           {view==='remediation'&&<Remediation tickets={tickets} onClose={closeTicket}/>}
@@ -97,7 +98,7 @@ function App(){
           {view==='readiness'&&<Readiness readiness={readiness}/>}
           {view==='repo'&&<RepoAnalyze repo={repo} setRepo={setRepo} busy={busy} setBusy={setBusy} setError={setError}/>}
           {view==='keys'&&<AccessKeys keys={keys} onActivate={activateKey} onRevoke={revokeKey}/>}
-          {view==='report'&&report&&<ReportView report={report} intel={intel} enterprise={enterprise} tasks={tasks} timeline={timeline} costGov={costGov} onClose={()=>setView('scans')}/>}
+          {view==='report'&&report&&<ReportView report={report} intel={intel} enterprise={enterprise} tasks={tasks} timeline={timeline} agentMesh={agentMesh} costGov={costGov} onClose={()=>setView('scans')}/>}
         </div>
       </div>
     </div>
@@ -159,6 +160,27 @@ function Scans({dash,run,openRun,current}){
         <span className="meta">{(r.app_model?.scan_tier||'legacy')} · ${r.cost_estimate_usd} · workspace {r.workspace_id}</span>
       </div>)}
     </div>
+  </div>;
+}
+
+function AgentMesh({mesh,run}){
+  if(!mesh)return <div className="view"><div className="hero"><span className="eyebrow">Multi-agent control plane</span><h2>No agent mesh loaded yet.</h2><p>Open a completed scan from the Scans tab to run the Supervisor, Threat Analyst, Red Team, Remediation, Compliance, Evidence QA, and Reporter agents over its evidence.</p></div></div>;
+  const outputs=mesh.outputs||{};
+  return <div className="view">
+    <div className="hero">
+      <span className="eyebrow">Multi-agent security agency</span>
+      <h2>Seven specialist agents reviewed run #{mesh.run_id||run?.run_id}.</h2>
+      <p>Agents hand off evidence, risk chains, remediation, compliance mapping, and client-safe reporting under a no-exploit safety boundary.</p>
+      <div className="hint">Cost guardrail: {mesh.cost_guardrail?.policy}</div>
+    </div>
+    <div className="grid">{(mesh.agent_status||[]).map(a=><div key={a.agent} className={'card '+(a.llm_backed?'good':'')}><div className="ic"><GitBranch size={18}/></div><h3>{a.agent}</h3><b>{a.llm_backed?'LLM':'Deterministic'}</b><p>{a.source} · {a.status}</p></div>)}</div>
+    <div className="cols2">
+      <div className="panel"><h3>Supervisor decision record</h3><p>{outputs.supervisor?.decision_record}</p><div className="hint">Next agent: {outputs.supervisor?.next_agent}</div></div>
+      <div className="panel"><h3>Evidence QA</h3><p>{outputs.evidence_qa?.ready_for_client?'All report claims have baseline evidence.':'Evidence gaps require review before client delivery.'}</p>{(outputs.evidence_qa?.gaps||[]).map((g,i)=><div key={i} className="log">{g.severity} · {g.title} · {g.gap}</div>)}</div>
+    </div>
+    <div className="panel"><h3>Agent handoffs</h3>{(mesh.handoffs||[]).map((h,i)=><div key={i} className="item"><div className="top"><b>{h.from} → {h.to}</b><Pill kind="info">{h.artifact}</Pill></div></div>)}</div>
+    <div className="panel"><h3>Risk register</h3>{(mesh.risk_register||[]).map(r=><div key={r.risk_id} className="item"><div className="top"><b><span className={'sev '+r.severity}>{r.severity}</span>{r.title}</b><Pill kind="mut">{r.sla}</Pill></div><span className="meta">{r.risk_id} · owner {r.owner}</span></div>)}</div>
+    <div className="cols2"><div className="panel"><h3>Compliance Mapper</h3><pre>{outputs.compliance?.control_map}</pre></div><div className="panel"><h3>Remediation Engineer</h3><pre>{outputs.remediation?.fixes}</pre></div></div>
   </div>;
 }
 
@@ -255,7 +277,7 @@ function Readiness({readiness}){
   </div>;
 }
 
-function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
+function ReportView({report,intel,enterprise,tasks,timeline,agentMesh,costGov,onClose}){
   return <div className="view"><div className="report">
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h2><FileText/> Vanguard security report</h2><button className="btn ghost" onClick={onClose}>← Back to scans</button></div>
     <div className="actions"><a href={`${API}/api/runs/${report.run_id}/report.html`} target="_blank">Open HTML report</a><a href={`${API}/api/runs/${report.run_id}/evidence-bundle`} target="_blank">Evidence JSON</a><a href={`${API}/api/client/reports/${report.run_id}`} target="_blank">Client-safe</a><a href={`${API}/api/runs/${report.run_id}/attestation`} target="_blank">Attestation</a></div>
@@ -306,6 +328,11 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
         <div className="card"><div className="ic"><ShieldCheck size={18}/></div><h3>Providers</h3><b style={{fontSize:14}}>{(report.observability.providers_used||[]).join(', ')||'none'}</b><p>resilient failover</p></div>
       </div>
       <div style={{marginTop:10}}>{report.observability.calls.map((c,i)=><div key={i} className="log">{c.ok?'✓':'✗'} {c.agent} · {c.provider}/{c.model} · {c.latency_ms}ms{c.fallback?' · fallback'+(c.error?' ('+c.error+')':''):''}</div>)}</div>
+    </div>}
+    {agentMesh&&<div className="panel" style={{marginTop:16,border:'1px solid #36d399',background:'linear-gradient(180deg,rgba(54,211,153,0.07),transparent)'}}>
+      <h3><GitBranch size={16}/> Multi-agent control plane <span className="pill ok">{agentMesh.agent_status?.length||0} agents</span></h3>
+      <p style={{marginTop:8,lineHeight:1.6}}>{agentMesh.outputs?.supervisor?.decision_record}</p>
+      <div className="grid" style={{marginTop:8}}>{(agentMesh.agent_status||[]).map(a=><div key={a.agent} className="card"><div className="ic"><GitBranch size={18}/></div><h3>{a.agent}</h3><b>{a.llm_backed?'LLM':'Deterministic'}</b><p>{a.source}</p></div>)}</div>
     </div>}
     {report.memory?.long_term&&<div className="panel" style={{marginTop:16,border:'1px solid #d9a441',background:'linear-gradient(180deg,rgba(217,164,65,0.08),transparent)'}}>
       <h3><Brain size={16}/> Agent memory <span className="pill mut">accumulating</span></h3>

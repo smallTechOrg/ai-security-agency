@@ -8,7 +8,7 @@ from .db import SessionLocal, init_db, db_health
 from . import models, schemas, audit
 from . import browser_recon, llm
 from .safety import validate_public_http_url
-app=FastAPI(title='Zer0 - The Vanguard', version='0.1.0')
+app=FastAPI(title='Vanguard by Zer0', version='0.1.0')
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in settings.cors_origins.split(',') if o.strip()], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
 @app.on_event('startup')
 def startup(): init_db()
@@ -96,6 +96,20 @@ def dashboard(db:Session=Depends(get_db)):
 def report(run_id:int, db:Session=Depends(get_db)):
     if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
     return audit.build_report(db,run_id)
+@app.get('/api/agents/catalog')
+def agents_catalog():
+    from . import orchestrator
+    return orchestrator.catalog()
+@app.post('/api/runs/{run_id}/agent-mesh')
+def run_agent_mesh(run_id:int, db:Session=Depends(get_db)):
+    if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
+    from . import orchestrator
+    return orchestrator.run_mesh(db,run_id)
+@app.get('/api/runs/{run_id}/agent-mesh')
+def get_agent_mesh(run_id:int, db:Session=Depends(get_db)):
+    if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
+    from . import orchestrator
+    return orchestrator.run_mesh(db,run_id)
 @app.api_route('/api/runs/{run_id}/report.html', methods=['GET','HEAD'], response_class=HTMLResponse)
 def report_html(run_id:int, db:Session=Depends(get_db)):
     rep=report(run_id,db); findings=''.join([f"<li><b>{f['severity']}: {f['title']}</b><p>{f['description']}</p><small>{f['remediation']}</small></li>" for f in rep['findings']])
@@ -107,14 +121,14 @@ def report_html(run_id:int, db:Session=Depends(get_db)):
 @app.get('/api/runs/{run_id}/evidence-bundle')
 def evidence_bundle(run_id:int, db:Session=Depends(get_db)):
     if not db.get(models.AuditRun,run_id): raise HTTPException(404,'run not found')
-    return {'run_id':run_id,'product':'Zer0 - The Vanguard','report':audit.build_report(db,run_id),'timeline':timeline(run_id,db),'tasks':tasks(run_id,db)}
+    return {'run_id':run_id,'product':'Vanguard by Zer0','report':audit.build_report(db,run_id),'timeline':timeline(run_id,db),'tasks':tasks(run_id,db),'agent_mesh':get_agent_mesh(run_id,db)}
 @app.get('/api/runs/{run_id}/attestation')
 def run_attestation(run_id:int, db:Session=Depends(get_db)):
     run=db.get(models.AuditRun,run_id)
     if not run: raise HTTPException(404,'run not found')
     asset=db.get(models.Asset,run.asset_id)
     approval=db.query(models.Approval).filter_by(run_id=run_id,status='approved').first()
-    return {'product':'Zer0 - The Vanguard','run_id':run.id,'target':asset.url if asset else '', 'domain_authorized':bool(asset and asset.authorized and approval),'scan_tier':(run.app_model or {}).get('scan_tier','legacy'),'methodology':['non_destructive','public_http_https_only','same_origin_crawl','headers_tls_common_files','no_credentials_no_dos_no_exfiltration'],'approval':{'status':approval.status if approval else 'missing','decided_by':approval.decided_by if approval else ''},'client_certificate_status':'internal_attestation_not_compliance_certificate','generated_for':'client_and_auditor_review'}
+    return {'product':'Vanguard by Zer0','run_id':run.id,'target':asset.url if asset else '', 'domain_authorized':bool(asset and asset.authorized and approval),'scan_tier':(run.app_model or {}).get('scan_tier','legacy'),'methodology':['non_destructive','public_http_https_only','same_origin_crawl','headers_tls_common_files','no_credentials_no_dos_no_exfiltration'],'approval':{'status':approval.status if approval else 'missing','decided_by':approval.decided_by if approval else ''},'client_certificate_status':'internal_attestation_not_compliance_certificate','generated_for':'client_and_auditor_review'}
 
 @app.get('/api/runs/{run_id}/timeline')
 def timeline(run_id:int, db:Session=Depends(get_db)):
@@ -249,7 +263,7 @@ def program_summary(db:Session=Depends(get_db)):
     runs=db.query(models.AuditRun).all(); assets=db.query(models.Asset).all(); findings=db.query(models.Finding).all(); approvals=db.query(models.Approval).all(); tickets=db.query(models.RemediationTicket).all(); schedules=db.query(models.Schedule).all(); subs=db.query(models.BillingSubscription).all()
     sev={}
     for f in findings: sev[f.severity]=sev.get(f.severity,0)+1
-    return {'product':'Zer0 - The Vanguard','risk':{'findings_total':len(findings),'by_severity':sev,'open_remediation_tickets':sum(1 for t in tickets if t.status!='closed')},'operations':{'runs_total':len(runs),'runs_completed':sum(1 for r in runs if r.status in {'completed','browser_recon_complete','report_ready'}),'domains_total':len(assets),'domains_approved':sum(1 for a in assets if a.authorized),'pending_approvals':sum(1 for a in approvals if a.status=='pending'),'active_schedules':sum(1 for s in schedules if s.status=='active')},'commerce':{'subscriptions_total':len(subs),'active_vanguard':sum(1 for s in subs if s.status=='active' and s.plan=='vanguard'),'estimated_scan_revenue_usd':round(sum(r.cost_estimate_usd for r in runs),2)}}
+    return {'product':'Vanguard by Zer0','risk':{'findings_total':len(findings),'by_severity':sev,'open_remediation_tickets':sum(1 for t in tickets if t.status!='closed')},'operations':{'runs_total':len(runs),'runs_completed':sum(1 for r in runs if r.status in {'completed','browser_recon_complete','report_ready'}),'domains_total':len(assets),'domains_approved':sum(1 for a in assets if a.authorized),'pending_approvals':sum(1 for a in approvals if a.status=='pending'),'active_schedules':sum(1 for s in schedules if s.status=='active')},'commerce':{'subscriptions_total':len(subs),'active_vanguard':sum(1 for s in subs if s.status=='active' and s.plan=='vanguard'),'estimated_scan_revenue_usd':round(sum(r.cost_estimate_usd for r in runs),2)}}
 
 @app.get('/api/program/readiness')
 def program_readiness(db:Session=Depends(get_db)):
@@ -261,7 +275,7 @@ def program_readiness(db:Session=Depends(get_db)):
         {'name':'remediation','ready':db.query(models.RemediationTicket).first() is not None,'detail':'Findings can become remediation tickets.'},
         {'name':'recurring_schedules','ready':db.query(models.Schedule).first() is not None,'detail':'Recurring scan schedule objects exist and are subscription/domain gated.'},
     ]
-    return {'product':'Zer0 - The Vanguard','ready_score':round(sum(1 for c in checks if c['ready'])/len(checks)*100),'checks':checks}
+    return {'product':'Vanguard by Zer0','ready_score':round(sum(1 for c in checks if c['ready'])/len(checks)*100),'checks':checks}
 
 @app.get('/api/admin/schedules')
 def admin_schedules(db:Session=Depends(get_db)):

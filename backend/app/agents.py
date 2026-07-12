@@ -222,3 +222,103 @@ def reporter_agent(target, findings, app_model, db=None, run_id=None) -> dict:
         pass
     return {'agent': 'Reporter', 'llm_backed': False, 'source': 'deterministic',
             'model': None, 'assessment': deterministic}
+
+
+COMPLIANCE_SYSTEM = (
+    "You are the Compliance Mapper agent for an authorized web security assessment. Map only the given "
+    "findings to common control themes (OWASP Top 10, SOC 2 Security/Availability, ISO 27001 Annex A, "
+    "PCI DSS if payment context is present, GDPR if privacy/cookies are present). Do not claim formal "
+    "certification. Return 4-7 short bullets: control, evidence, remediation owner."
+)
+
+
+def compliance_agent(target, findings, app_model, db=None, run_id=None) -> dict:
+    """Compliance-mapping sub-agent with deterministic fallback."""
+    finding_lines = '; '.join(f'{f.severity}: {f.title} ({(f.compliance or {}).get("OWASP", "unmapped")})' for f in findings[:12]) or 'no findings'
+    deterministic = (
+        'OWASP A05 Security Misconfiguration: missing browser security headers require platform-team remediation. '
+        'SOC 2 CC7/CC8: findings should be tracked through a change/retest workflow. '
+        'ISO 27001 Annex A 8.8/8.9: technical vulnerability management and configuration management evidence is needed. '
+        'GDPR privacy review is recommended if cookies or third-party trackers are present. This is a control map, not a compliance attestation.'
+    )
+    try:
+        prompt = (f'{COMPLIANCE_SYSTEM}\n\nTarget: {target}\nApp context: {app_model or {}}\n'
+                  f'Findings: {finding_lines}\n\nProduce the control map now.')
+        chain = _provider_chain()
+        out = entry = None
+        if db is not None:
+            from . import observability
+            out, entry = observability.call_with_trace(db, run_id, 'Compliance Mapper', prompt, chain)
+        else:
+            from . import llm
+            for m, e in chain:
+                r = llm.live_intelligence(prompt, m, e)
+                if r and r.get('summary'):
+                    out, entry = r, e; break
+        if out and out.get('summary'):
+            return {'agent': 'Compliance Mapper', 'llm_backed': True, 'source': f'ai:{entry.get("provider")}',
+                    'model': entry.get('model'), 'control_map': out['summary'].strip(),
+                    'disclaimer': 'control mapping only; not a compliance certificate'}
+    except Exception:
+        pass
+    return {'agent': 'Compliance Mapper', 'llm_backed': False, 'source': 'deterministic', 'model': None,
+            'control_map': deterministic, 'disclaimer': 'control mapping only; not a compliance certificate'}
+
+
+def evidence_qa_agent(target, findings, evidence) -> dict:
+    """Deterministic quality gate: every finding should have evidence and a remediation."""
+    evidence_kinds = sorted({e.kind for e in evidence})
+    gaps = []
+    for f in findings:
+        if not (f.evidence or '').strip():
+            gaps.append({'severity': f.severity, 'title': f.title, 'gap': 'missing evidence text'})
+        if not (f.remediation or '').strip():
+            gaps.append({'severity': f.severity, 'title': f.title, 'gap': 'missing remediation'})
+    required = {'crawl', 'headers', 'tls', 'common-files'}
+    missing = sorted(required - set(evidence_kinds))
+    if missing:
+        gaps.append({'severity': 'Medium', 'title': target, 'gap': 'missing evidence kinds: ' + ', '.join(missing)})
+    return {'agent': 'Evidence QA', 'llm_backed': False, 'source': 'deterministic', 'model': None,
+            'evidence_kinds': evidence_kinds, 'claims_checked': len(findings), 'gaps': gaps,
+            'ready_for_client': len(gaps) == 0}
+
+
+SUPERVISOR_SYSTEM = (
+    "You are the Supervisor agent for a multi-agent security assessment. Summarize the specialists' outputs "
+    "into a decision record: current risk, top two work items, whether evidence is strong enough for client "
+    "delivery, and which agent should run next. Keep it executive, concrete, and evidence-bound."
+)
+
+
+def supervisor_agent(target, findings, app_model, specialist_outputs, db=None, run_id=None) -> dict:
+    """Supervisor/routing agent over the specialist results."""
+    high = [f for f in findings if f.severity in {'Critical', 'High'}]
+    deterministic = (
+        f'{target} has {len(findings)} validated findings ({len(high)} Critical/High). '
+        'Priority is to break the highest-risk chain, ship header/cookie hardening, then retest and close tickets. '
+        'Evidence QA gates client delivery; unresolved evidence gaps should be fixed before certificate-style language is used.'
+    )
+    try:
+        import json as _json
+        payload = _json.dumps(specialist_outputs, default=str)[:8000]
+        prompt = (f'{SUPERVISOR_SYSTEM}\n\nTarget: {target}\nApp context: {app_model or {}}\n'
+                  f'Findings count: {len(findings)}\nSpecialists:\n{payload}\n\nWrite the decision record now.')
+        chain = _provider_chain()
+        out = entry = None
+        if db is not None:
+            from . import observability
+            out, entry = observability.call_with_trace(db, run_id, 'Supervisor', prompt, chain)
+        else:
+            from . import llm
+            for m, e in chain:
+                r = llm.live_intelligence(prompt, m, e)
+                if r and r.get('summary'):
+                    out, entry = r, e; break
+        if out and out.get('summary'):
+            return {'agent': 'Supervisor', 'llm_backed': True, 'source': f'ai:{entry.get("provider")}',
+                    'model': entry.get('model'), 'decision_record': out['summary'].strip(),
+                    'next_agent': 'Remediation Engineer' if high else 'Evidence QA'}
+    except Exception:
+        pass
+    return {'agent': 'Supervisor', 'llm_backed': False, 'source': 'deterministic', 'model': None,
+            'decision_record': deterministic, 'next_agent': 'Remediation Engineer' if high else 'Evidence QA'}

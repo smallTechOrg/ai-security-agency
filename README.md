@@ -1,6 +1,6 @@
 # AI Security Agency
 
-AI-first security agency platform for authorized website/application audits. Phase 1 is a serious hackathon base: resilient audit workspaces, safe public-website baseline scans, approval gates, evidence, findings, cost tracking, immutable audit logs, and professional reports.
+AI-first security agency platform for authorized website/application audits. Vanguard by Zer0 now includes resilient audit workspaces, safe public-website baseline scans, approval gates, evidence, findings, cost tracking, immutable audit logs, professional reports, and a multi-agent control plane.
 
 ## Run
 
@@ -14,6 +14,27 @@ make frontend
 
 Open UI: http://127.0.0.1:5173
 API health: http://127.0.0.1:8011/health
+
+## Multi-agent control plane
+
+Completed scans can be reviewed by a specialist agent mesh:
+
+- Supervisor — routes evidence and produces the decision record.
+- Threat Analyst — prioritizes the attack path from captured findings.
+- Red Team — models a defender-safe attack chain without exploit code.
+- Remediation Engineer — turns findings into concrete fixes.
+- Compliance Mapper — maps issues to OWASP/SOC 2/ISO/PCI/GDPR control themes.
+- Evidence QA — checks whether claims are backed by stored evidence.
+- Reporter — writes client-safe business impact.
+
+API surfaces:
+
+```bash
+curl http://127.0.0.1:8011/api/agents/catalog
+curl -X POST http://127.0.0.1:8011/api/runs/<run_id>/agent-mesh
+```
+
+The mesh uses configured OpenAI/Gemini providers when available and deterministic fallback otherwise; it does **not** loop indefinitely or intentionally burn credits.
 
 ## Safety boundary
 
