@@ -267,8 +267,10 @@ function ReportView({report,intel,enterprise,tasks,timeline,costGov,onClose}){
       <div style={{marginTop:8}}>{(report.active_probe.checks||[]).map((c,i)=><div key={i} className="item" style={{borderLeft:'2px solid '+(c.issue_found?'#ff5c7c':'#36d399')}}><div className="top"><b>{c.issue_found?'⚠️':'✓'} {c.check}</b><span className={'pill '+(c.issue_found?'bad':'ok')}>{c.issue_found?c.severity:'pass'}</span></div>{c.title&&<span className="sub">{c.title}</span>}</div>)}</div>
     </div>}
     {report.api_security&&<div className="panel" style={{marginTop:16,border:'1px solid #d9a441'}}>
-      <h3><Code2 size={16}/> API security test <span className={'pill '+(report.api_security.issues>0?'bad':'ok')}>{report.api_security.issues} issues</span><span className="pill mut">{report.api_security.endpoints_tested} endpoints</span></h3>
-      {report.api_security.endpoints_tested===0&&<p className="sub">No API/XHR calls were observed on this page during browser recon.</p>}
+      <h3><Code2 size={16}/> API security test <span className={'pill '+(report.api_security.issues>0?'bad':'ok')}>{report.api_security.issues} issues</span><span className="pill mut">{report.api_security.endpoints_tested} observed · {report.api_security.discovered_count||0} discovered</span></h3>
+      {(report.api_security.discovered||[]).length>0&&<div style={{marginBottom:8}}><h4>Discovered API surface</h4>{report.api_security.discovered.map((x,i)=><div key={i} className="item" style={{borderLeft:'2px solid #ff5c7c'}}><div className="top"><b>⚠️ {x.label} <code>{x.path}</code></b><span className={'sev '+x.severity}>{x.severity}</span></div><span className="sub">HTTP {x.status}</span></div>)}</div>}
+      {report.api_security.endpoints_tested===0&&(report.api_security.discovered_count||0)===0&&<p className="sub">No API/XHR calls observed and no common API endpoints exposed.</p>}
+      {report.api_security.endpoints_tested>0&&<h4>APIs the frontend calls</h4>}
       {(report.api_security.endpoints||[]).map((e,i)=><div key={i} className="item" style={{borderLeft:'2px solid '+(e.issue_count>0?'#ff5c7c':'#36d399')}}><div className="top"><b>{e.issue_count>0?'⚠️':'✓'} {e.method} {(()=>{try{return new URL(e.url).pathname}catch{return e.url}})()}</b><span className={'pill '+(e.issue_count>0?'bad':'ok')}>{e.issue_count>0?e.issue_count+' issue'+(e.issue_count>1?'s':''):'ok'}</span></div></div>)}
     </div>}
     {report.redteam&&<div className="panel" style={{marginTop:16,border:'1px solid #ff5c7c'}}>

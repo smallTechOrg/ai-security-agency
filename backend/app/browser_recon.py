@@ -46,6 +46,15 @@ def _render_with_browser(url: str, run_id: int) -> dict:
             page.on('request', lambda r: network.append(
                 {'url': r.url[:500], 'method': r.method, 'resource_type': r.resource_type}))
             page.goto(url, wait_until='networkidle', timeout=settings.browser_timeout_ms)
+            # Interact to trigger lazy/XHR API calls the frontend makes on scroll/hover.
+            try:
+                for y in (0.3, 0.6, 1.0):
+                    page.evaluate(f'window.scrollTo(0, document.body.scrollHeight*{y})')
+                    page.wait_for_timeout(600)
+                page.evaluate('window.scrollTo(0,0)')
+                page.wait_for_timeout(400)
+            except Exception:
+                pass
             title = page.title()
             rendered_html = page.content()
             body_excerpt = (page.locator('body').inner_text(timeout=3000))[:3000]
